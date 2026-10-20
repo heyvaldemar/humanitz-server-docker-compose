@@ -28,7 +28,10 @@ WORK="$(mktemp -d)"
 export HUMANITZ_BACKUP_DIR="$WORK/backups"
 COMPOSE="humanitz-server-docker-compose.yml"
 BASE=/data/serverfiles/HumanitZServer
-WORLD="$BASE/Saved/SaveGames/SaveList/Default/DedicatedSave/Save_DedicatedSaveMP.sav"
+# The world file this template's settings produce: Save_DedicatedSave.sav,
+# measured on a CI runner. Other settings can name it differently, which is
+# why scripts/backup.sh and scripts/restore.sh match any Save_*.sav.
+WORLD="$BASE/Saved/SaveGames/SaveList/Default/DedicatedSave/Save_DedicatedSave.sav"
 BANNED=76561190000000009
 
 if docker volume inspect "$HUMANITZ_VOLUME" >/dev/null 2>&1; then
@@ -100,7 +103,7 @@ else
 fi
 cron="$(docker exec "$(compose ps -q humanitz-server)" crontab -l -u linuxgsm 2>&1)"
 if ! grep -q "hzserver update" <<<"$cron"; then
-  pass "LinuxGSM's hourly update is not scheduled (UPDATE_CHECK=0)"
+  pass "LinuxGSM's hourly update is not scheduled (UPDATE_CHECK=0); linuxgsm's crontab: $(grep -v '^#' <<<"$cron" | tr '\n' ';' | cut -c1-120)"
 else
   fail "LinuxGSM's update is in linuxgsm's crontab, so it could restart the server under players: $(tr '\n' ';' <<<"$cron") (UPDATE_CHECK=$(docker exec "$(compose ps -q humanitz-server)" printenv UPDATE_CHECK))"
 fi

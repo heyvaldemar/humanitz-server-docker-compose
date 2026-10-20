@@ -57,8 +57,8 @@ fi
 # settings (a password in them) and a ban list.
 vol 'D="$BASE/Saved/SaveGames/SaveList/Default/DedicatedSave"
      mkdir -p "$D/_Backup/0" "$BASE/Saved/Config/LinuxServer" "$BASE/Saved/Logs" &&
-     echo world-v1 > "$D/Save_DedicatedSaveMP.sav" &&
-     echo world-v1-copy > "$D/_Backup/0/Save_DedicatedSaveMP.sav" &&
+     echo world-v1 > "$D/Save_DedicatedSave.sav" &&
+     echo world-v1-copy > "$D/_Backup/0/Save_DedicatedSave.sav" &&
      echo global > "$BASE/Saved/SaveGames/DedSave_ResGlobal.sav" &&
      printf "[Host Settings]\nRCONPass=fixture-secret\n" > "$BASE/GameServerSettings.ini" &&
      echo 76561190000000009 > "$BASE/F_BannedPlayers.txt" &&
@@ -74,7 +74,7 @@ archive="${archives[0]}"; [ -f "$archive" ] || archive=""
 if [ "$rc" = 0 ] && [ -n "$archive" ] && grep -q "backup OK" <<<"$out"; then pass "backup: wrote $(basename "$archive")"; else fail "backup: exit $rc, said: $out"; fi
 if grep -q "NOT flushed" <<<"$out"; then pass "backup: says the world was not flushed, with no server to ask"; else fail "backup: did not say it was unflushed: $out"; fi
 listing="$(tar -tzf "$archive" 2>/dev/null)"
-if grep -qx "Saved/SaveGames/SaveList/Default/DedicatedSave/Save_DedicatedSaveMP.sav" <<<"$listing" \
+if grep -qx "Saved/SaveGames/SaveList/Default/DedicatedSave/Save_DedicatedSave.sav" <<<"$listing" \
    && grep -qx "GameServerSettings.ini" <<<"$listing" && grep -qx "F_BannedPlayers.txt" <<<"$listing"; then
   pass "backup: the world, the settings and the ban list are in it"
 else
@@ -89,7 +89,7 @@ if [ "$mode" = 600 ]; then pass "backup: the archive is readable by its owner al
 # the exact path, byte for byte.
 vol 'rm -rf "$BASE/Saved/SaveGames" "$BASE/F_BannedPlayers.txt" &&
      mkdir -p "$BASE/Saved/SaveGames/SaveList/Default/DedicatedSave" &&
-     echo fresh-world > "$BASE/Saved/SaveGames/SaveList/Default/DedicatedSave/Save_DedicatedSaveMP.sav"'
+     echo fresh-world > "$BASE/Saved/SaveGames/SaveList/Default/DedicatedSave/Save_DedicatedSave.sav"'
 out="$(scripts/restore.sh "$archive" 2>&1)"; rc=$?
 if [ "$rc" = 0 ] && grep -q "the ban list" <<<"$out"; then pass "restore: exit 0, the ban list named"; else fail "restore: exit $rc, said: $out"; fi
 if [ "$(sums)" = "$sums_before" ]; then
@@ -102,12 +102,12 @@ if vol 'test -e "$BASE/Saved/Saved" || test -e "$BASE/Saved/SaveGames/SaveGames"
 else
   pass "restore: nothing landed one level too deep"
 fi
-if vol 'cat "$BASE"/before-restore-*/SaveGames/SaveList/Default/DedicatedSave/Save_DedicatedSaveMP.sav' 2>/dev/null | grep -qx fresh-world; then
+if vol 'cat "$BASE"/before-restore-*/SaveGames/SaveList/Default/DedicatedSave/Save_DedicatedSave.sav' 2>/dev/null | grep -qx fresh-world; then
   pass "restore: the world that was there is kept aside, not lost"
 else
   fail "restore: the world that was there before is gone"
 fi
-if [ "$(vol 'stat -c %u "$BASE/F_BannedPlayers.txt"')" = 1000 ] && [ "$(vol 'stat -c %u "$BASE/Saved/SaveGames/SaveList/Default/DedicatedSave/Save_DedicatedSaveMP.sav"')" = 1000 ]; then
+if [ "$(vol 'stat -c %u "$BASE/F_BannedPlayers.txt"')" = 1000 ] && [ "$(vol 'stat -c %u "$BASE/Saved/SaveGames/SaveList/Default/DedicatedSave/Save_DedicatedSave.sav"')" = 1000 ]; then
   pass "restore: the files belong to the server's user, uid 1000"
 else
   fail "restore: the files do not belong to uid 1000"
@@ -115,7 +115,7 @@ fi
 
 # 4. The naive restore, for contrast: the archive extracted at the volume's
 # root. It "works", and the server would find no world.
-naive="$(docker run --rm -v "$(cd "$(dirname "$archive")" && pwd)":/in:ro alpine:3.20 sh -c "mkdir -p /v/serverfiles/HumanitZServer && tar -xzf /in/$(basename "$archive") -C /v && test -f /v/serverfiles/HumanitZServer/Saved/SaveGames/SaveList/Default/DedicatedSave/Save_DedicatedSaveMP.sav && echo found || echo missing")"
+naive="$(docker run --rm -v "$(cd "$(dirname "$archive")" && pwd)":/in:ro alpine:3.20 sh -c "mkdir -p /v/serverfiles/HumanitZServer && tar -xzf /in/$(basename "$archive") -C /v && test -f /v/serverfiles/HumanitZServer/Saved/SaveGames/SaveList/Default/DedicatedSave/Save_DedicatedSave.sav && echo found || echo missing")"
 if [ "$naive" = missing ]; then
   pass "contrast: the same archive extracted at the volume's root leaves no world where the server looks"
 else
