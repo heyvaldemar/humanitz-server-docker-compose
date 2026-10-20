@@ -1,0 +1,91 @@
+name: Experiment
+
+# One-off measurements on a real runner before the template is written: how
+# the LinuxGSM image installs HumanitZ, what settings file the game writes,
+# whether it keeps keys written before its first start, and what RCON and the
+# Steam query port answer. Removed once the template exists.
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+jobs:
+  boot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      IMAGE: gameservermanagers/gameserver@sha256:ba7448ed53a6846e4c31013c6537c52702b5714788a981b0c773aacb33f0228d
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install only, and time it
+        run: |
+          docker volume create hz-data >/dev/null
+          start=$(date +%s)
+          docker run --rm -v hz-data:/data -e UPDATE_CHECK=0 "$IMAGE" auto-install > install.log 2>&1; rc=$?
+          echo "auto-install exit $rc after $(( $(date +%s) - start ))s"
+          tail -25 install.log
+          docker run --rm -v hz-data:/data alpine:3.20 sh -c 'du -sh /data/serverfiles; ls -la /data/serverfiles/HumanitZServer 2>&1 | head -30; find /data -name "*.ini" | head'
+
+      - name: Write settings before the first start
+        run: |
+          pw="$(openssl rand -hex 16)"; echo "::add-mask::$pw"
+          echo "RCON_PASSWORD=$pw" >> "$GITHUB_ENV"
+          docker run --rm -v hz-data:/data -e PW="$pw" alpine:3.20 sh -c '
+            f=/data/serverfiles/HumanitZServer/GameServerSettings.ini
+            if [ -f "$f" ]; then echo "the install wrote $f"; else echo "no $f after the install"; fi
+            printf "[Host Settings]\nServerName=\"ci-experiment\"\nMaxPlayers=8\nAdminPass=%s\nRCONEnabled=true\nRConPort=8888\nRCONPass=%s\n" "$PW" "$PW" > "$f"
+            chown 1000:1000 "$f"'
+
+      - name: First start
+        run: |
+          docker run -d --name hz -v hz-data:/data -e UPDATE_CHECK=0 "$IMAGE" >/dev/null
+          start=$(date +%s)
+          for _ in $(seq 1 180); do
+            docker exec hz sh -c 'cat /proc/[0-9]*/comm' 2>/dev/null | grep -q '^HumanitZ' && break
+            sleep 5
+          done
+          echo "game process after $(( $(date +%s) - start ))s:"
+          docker exec hz sh -c 'for p in /proc/[0-9]*; do c=$(cat $p/comm 2>/dev/null); case "$c" in Human*) echo "comm=[$c]";; esac; done'
+          sleep 120
+          docker logs hz 2>&1 | tail -40
+
+      - name: What the game made of the settings
+        run: |
+          docker exec hz sh -c 'f=/data/serverfiles/HumanitZServer/GameServerSettings.ini; wc -l $f; grep -n -E "^\[|ServerName|MaxPlayers|RCON|RCon|Password|AdminPass|SaveName|SaveIntervalSec" $f' | sed -E 's/((Pass|Password)=).+/\1<redacted>/'
+          docker exec hz sh -c 'ls -la /data/serverfiles/HumanitZServer /data/serverfiles/HumanitZServer/Saved 2>&1; find /data/serverfiles/HumanitZServer/Saved -maxdepth 3 | head -40'
+
+      - name: RCON and the Steam query
+        run: |
+          for c in info players save; do
+            echo "== $c"
+            docker exec -i -e RCON_PASSWORD hz python3 - "$c" < scripts/rcon.py; echo "exit $?"
+          done
+          docker exec hz sh -c 'find /data/serverfiles/HumanitZServer/Saved/SaveGames -type f -printf "%T@ %s %p\n" 2>/dev/null | sort -n | tail -8'
+          docker exec -i hz python3 - <<'PY'
+          import socket
+          s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(5)
+          for port in (27015, 7777):
+              try:
+                  s.sendto(b"\xff\xff\xff\xff\x54Source Engine Query\x00", ("127.0.0.1", port))
+                  print(port, "answered", s.recvfrom(4096)[0][:40])
+              except Exception as e:
+                  print(port, "no answer:", type(e).__name__)
+          PY
+          docker exec hz sh -c 'cat /proc/net/udp /proc/net/tcp | awk "NR>1 {print \$2, \$4}" | sort -u | head -20'
+
+      - name: Restart, and the settings again
+        run: |
+          docker restart -t 120 hz >/dev/null
+          for _ in $(seq 1 60); do docker exec hz sh -c 'cat /proc/[0-9]*/comm' 2>/dev/null | grep -q '^HumanitZ' && break; sleep 5; done
+          sleep 60
+          docker exec hz sh -c 'grep -n -E "RCONEnabled|RConPort|ServerName|MaxPlayers" /data/serverfiles/HumanitZServer/GameServerSettings.ini'
+          docker exec -i -e RCON_PASSWORD hz python3 - info < scripts/rcon.py; echo "rcon after restart: exit $?"
+          docker exec hz sh -c 'ls -la /data/serverfiles/HumanitZServer/*.txt 2>&1; crontab -l -u linuxgsm 2>&1 | head -3'
+
+      - name: The log, on failure
+        if: always()
+        run: docker logs hz 2>&1 | tail -60 || true
