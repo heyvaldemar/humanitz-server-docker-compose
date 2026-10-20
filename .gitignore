@@ -1,3 +1,4 @@
 .env
 *.frozen.sh
 backups/
+__pycache__/
