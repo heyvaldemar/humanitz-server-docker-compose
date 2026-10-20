@@ -1,6 +1,7 @@
 # HumanitZ dedicated server using Docker Compose
 
 [![Deployment Verification](https://github.com/heyvaldemar/humanitz-server-docker-compose/actions/workflows/deployment-verification.yml/badge.svg?branch=main)](https://github.com/heyvaldemar/humanitz-server-docker-compose/actions/workflows/deployment-verification.yml)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15716/badge)](https://www.bestpractices.dev/projects/15716)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A HumanitZ dedicated server answers no Steam query, so every tool that asks "is it up, who is on" the usual way hears silence, and most of them read silence as an empty server. This template asks over RCON instead, from inside the container, and treats an answer it did not get as "unknown", never as zero: the status, the player count, the update that waits for an empty server, and the save before every backup.
