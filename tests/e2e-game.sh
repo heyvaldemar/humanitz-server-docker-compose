@@ -101,11 +101,14 @@ socket.create_connection(("127.0.0.1", 8888), 3)' >/dev/null 2>&1; then
 else
   pass "RCON is published nowhere: nothing answers on the host's port 8888"
 fi
-cron="$(docker exec "$(compose ps -q humanitz-server)" crontab -l -u linuxgsm 2>&1)"
-if ! grep -q "hzserver update" <<<"$cron"; then
-  pass "LinuxGSM's hourly update is not scheduled (UPDATE_CHECK=0); linuxgsm's crontab: $(grep -v '^#' <<<"$cron" | tr '\n' ';' | cut -c1-120)"
+# Two answers pass: no crontab at all, or one without LinuxGSM's update line.
+# Anything else, a failed exec included, fails with what it saw: an empty
+# answer must not pass as "no update scheduled".
+cron="$(docker exec "$(compose ps -q humanitz-server)" crontab -l -u linuxgsm 2>&1)"; crc=$?
+if grep -q "^no crontab for linuxgsm" <<<"$cron" || { [ "$crc" = 0 ] && ! grep -q "hzserver update" <<<"$cron"; }; then
+  pass "LinuxGSM's hourly update is not scheduled (UPDATE_CHECK=0): $(grep -v '^#' <<<"$cron" | head -1 | cut -c1-80)"
 else
-  fail "LinuxGSM's update is in linuxgsm's crontab, so it could restart the server under players: $(tr '\n' ';' <<<"$cron") (UPDATE_CHECK=$(docker exec "$(compose ps -q humanitz-server)" printenv UPDATE_CHECK))"
+  fail "linuxgsm's crontab could not be shown to lack LinuxGSM's update (exit $crc): $(tr '\n' ';' <<<"$cron") (UPDATE_CHECK=$(docker exec "$(compose ps -q humanitz-server)" printenv UPDATE_CHECK))"
 fi
 out="$(scripts/refresh.sh --check 2>&1)"; rc=$?
 if [ "$rc" = 0 ] && grep -q "up to date: build [0-9]" <<<"$out"; then pass "refresh --check reads both builds from LinuxGSM: ${out#* * }"; else fail "refresh --check exited $rc: $out"; fi
