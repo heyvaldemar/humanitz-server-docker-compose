@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_(no unreleased changes yet)_
+### Fixed
+
+- **The README says why LinuxGSM's hourly update was never running, as well as why it is off.** Under this template's `no-new-privileges` the image's entrypoint cannot install that cron job at all: crontab is setgid, the hardening ignores the bit, and the install fails with "mkstemp: Permission denied" while the entrypoint carries on. v1.0.0 described only the restart it would cause. `UPDATE_CHECK: "0"` keeps it off by decision, the day either side changes. `tests/e2e-game.sh` now shows the install failing under the hardening and working without it, against the pinned image (17 checks).
 
 ## [1.0.0] - 2026-10-20
 

@@ -110,6 +110,17 @@ if grep -q "^no crontab for linuxgsm" <<<"$cron" || { [ "$crc" = 0 ] && ! grep -
 else
   fail "linuxgsm's crontab could not be shown to lack LinuxGSM's update (exit $crc): $(tr '\n' ';' <<<"$cron") (UPDATE_CHECK=$(docker exec "$(compose ps -q humanitz-server)" printenv UPDATE_CHECK))"
 fi
+# Why it is off by decision and not left to chance: under no-new-privileges
+# the cron cannot be installed (crontab is setgid), without it it can.
+image="$(docker inspect -f '{{.Config.Image}}' "$(compose ps -q humanitz-server)")"
+cron_try='echo "0 * * * * /app/hzserver update" | crontab - 2>&1; echo "exit $?"'
+hardened="$(docker run --rm --security-opt no-new-privileges:true --user linuxgsm --entrypoint sh "$image" -c "$cron_try" 2>&1)"
+plain="$(docker run --rm --user linuxgsm --entrypoint sh "$image" -c "$cron_try" 2>&1)"
+if grep -q "Permission denied" <<<"$hardened" && grep -q "exit 1" <<<"$hardened" && grep -q "exit 0" <<<"$plain"; then
+  pass "under no-new-privileges LinuxGSM's cron cannot install ($(grep -m1 "Permission denied" <<<"$hardened")), without it it can"
+else
+  fail "the cron install under and without no-new-privileges: [$hardened] [$plain]"
+fi
 out="$(scripts/refresh.sh --check 2>&1)"; rc=$?
 if [ "$rc" = 0 ] && grep -q "up to date: build [0-9]" <<<"$out"; then pass "refresh --check reads both builds from LinuxGSM: ${out#* * }"; else fail "refresh --check exited $rc: $out"; fi
 
