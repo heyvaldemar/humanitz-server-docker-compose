@@ -98,10 +98,11 @@ socket.create_connection(("127.0.0.1", 8888), 3)' >/dev/null 2>&1; then
 else
   pass "RCON is published nowhere: nothing answers on the host's port 8888"
 fi
-if docker exec "$(compose ps -q humanitz-server)" crontab -l -u linuxgsm 2>&1 | grep -q "no crontab"; then
+cron="$(docker exec "$(compose ps -q humanitz-server)" crontab -l -u linuxgsm 2>&1)"
+if ! grep -q "hzserver update" <<<"$cron"; then
   pass "LinuxGSM's hourly update is not scheduled (UPDATE_CHECK=0)"
 else
-  fail "a crontab exists for linuxgsm: LinuxGSM's own update could restart the server under players"
+  fail "LinuxGSM's update is in linuxgsm's crontab, so it could restart the server under players: $(tr '\n' ';' <<<"$cron") (UPDATE_CHECK=$(docker exec "$(compose ps -q humanitz-server)" printenv UPDATE_CHECK))"
 fi
 out="$(scripts/refresh.sh --check 2>&1)"; rc=$?
 if [ "$rc" = 0 ] && grep -q "up to date: build [0-9]" <<<"$out"; then pass "refresh --check reads both builds from LinuxGSM: ${out#* * }"; else fail "refresh --check exited $rc: $out"; fi
@@ -122,7 +123,12 @@ have="$(vol 'cd "$BASE" && find Saved/SaveGames F_BannedPlayers.txt -type f | so
 if [ -n "$want" ] && [ "$want" = "$have" ]; then pass "every file of the archive is back at its live path, byte for byte ($(grep -c . <<<"$want") files)"; else fail "the restored files differ from the archive"; fi
 compose start humanitz-server >/dev/null 2>&1
 if healthy 30 && rcon_ready; then pass "the restored server starts and answers RCON"; else fail "the restored server did not come back"; fi
-if vol 'grep -q "'"$BANNED"'" "$BASE/F_BannedPlayers.txt" && test -s "$WORLD"' 2>/dev/null; then pass "after the start, the world and the ban are still there"; else fail "after the start, the world or the ban is gone"; fi
+if vol 'test -s "$WORLD"'; then pass "after the start, the world is there"; else fail "after the start, the world file is gone: $(vol 'ls -la "$(dirname "$WORLD")" 2>&1' | tr '\n' ';')"; fi
+if vol 'grep -q "'"$BANNED"'" "$BASE/F_BannedPlayers.txt"' 2>/dev/null; then
+  pass "after the start, the ban is still there"
+else
+  fail "after the start, the ban list no longer holds the id: $(vol 'ls -la "$BASE"/F_*.txt 2>&1; head -c 300 "$BASE/F_BannedPlayers.txt" 2>&1' | tr '\n' ';')"
+fi
 
 echo; echo "--- the health check, in both directions"
 cid="$(compose ps -q humanitz-server)"

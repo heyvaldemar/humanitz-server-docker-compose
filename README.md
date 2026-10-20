@@ -22,7 +22,13 @@ docker compose -p humanitz logs -f humanitz-server
 scripts/status.sh      # {"status": "Online", "players": 0, "max": 16, ...} once RCON answers
 ```
 
+Players find it with the game's own words, not the host guides': JOIN, then the **IP CONNECT** box at the bottom right takes `host:port` (the game port), or **Search server name** under FILTERS finds it in the list. Guides call this "Direct Connect", a label the game never shows.
+
 ## What this file knows that a fresh one does not
+
+**A hostname works for joining.** HumanitZ runs Unreal's stock IpNetDriver, which resolves names, so `your.hostname:7777` in IP CONNECT joins as well as the address does. On the machine this template comes from, a join by name was proven with a capture on the relay, the client's packets arriving over the internet path, and "Join succeeded" in the server log. Not every game built on Unreal does this: VEIN, which runs over Steam's socket layer, joins by IP address only.
+
+**The mode belongs in the name.** PvP is one switch for the whole server, not a choice a player makes, so a player learns whether they can be shot only from the server's name. Put it there (`HUMANITZ_SERVER_NAME=My Server | PvP`); the `|` is safe, `scripts/start.sh` quotes the name where LinuxGSM pastes it into a shell.
 
 **HumanitZ answers no Steam query.** It advertises itself through Epic Online Services. On a CI runner, with the server up and RCON answering, the Steam query to the query port and to the game port both timed out; on the machine this template comes from, six minutes of queries from the LAN, from a relay and from inside the container got no reply either. Monitors that speak A2S see a dead server, and anything that counts players that way counts nothing. RCON is the one source of truth, and `tests/e2e-game.sh` fails the day the query starts answering, because the reason for all of this would be gone.
 
