@@ -1,0 +1,126 @@
+# Image pin lives HERE, as an interpolation default, so `git pull` (or
+# re-downloading this file) delivers the exact image this repository has
+# tested. Set HUMANITZ_SERVER_IMAGE_VERSION in .env to run a different version
+# while the digest for it is fetched normally, or HUMANITZ_SERVER_IMAGE_TAG to
+# replace the whole reference. CI (the Trivy scan and the freshness check)
+# reads the pin from this line: this block is the single source of truth.
+#
+# ONE TAG PER GAME in this image: LinuxGSM publishes every game it supports as
+# a tag of gameservermanagers/gameserver, so the tag says which game and the
+# digest says which build of it. THE IMAGE IS THE WRAPPER, NOT THE GAME: the
+# game itself, Steam app 2728330 on its native Linux branch, is downloaded
+# into the volume below on the first start and brought up to date on starts
+# after it. HumanitZ patches arrive through scripts/refresh.sh.
+x-images:
+  humanitz-server: &humanitz-server-image ${HUMANITZ_SERVER_IMAGE_TAG:-gameservermanagers/gameserver:${HUMANITZ_SERVER_IMAGE_VERSION:-hz@sha256:ba7448ed53a6846e4c31013c6537c52702b5714788a981b0c773aacb33f0228d}}
+
+services:
+  humanitz-server:
+    image: *humanitz-server-image
+    # THE SETTINGS ARE WRITTEN BEFORE EVERY START, then the image's own
+    # entrypoint takes over. scripts/start.sh installs the game on the first
+    # start (LinuxGSM installs only into an empty directory, so nothing can be
+    # written there first), then writes the [Host Settings] this .env owns
+    # into GameServerSettings.ini, and hands over. Measured on a CI runner:
+    # the game keeps a settings file written before its first start, and
+    # creates none of its own when one is there.
+    entrypoint: ["/bin/bash", "/opt/humanitz/start.sh"]
+    # Handles untrusted input from the internet and cannot gain privileges
+    # through a setuid binary.
+    security_opt:
+      - no-new-privileges:true
+    # AN UNREAL ENGINE 4 OPEN WORLD. The usual guidance is 8 GB, 4 GB at the
+    # least. The ceiling exists so a leak here cannot get some other container
+    # killed instead, and there is no swap on top of it, because a game tick
+    # that pages is a stutter every player sees.
+    deploy:
+      resources:
+        limits:
+          memory: ${HUMANITZ_SERVER_MEMORY_LIMIT:-8g}
+          cpus: "${HUMANITZ_SERVER_CPU_LIMIT:-4.0}"
+        reservations:
+          memory: ${HUMANITZ_SERVER_MEMORY_RESERVATION:-2g}
+          cpus: "${HUMANITZ_SERVER_CPU_RESERVATION:-1.0}"
+    memswap_limit: ${HUMANITZ_SERVER_MEMORY_LIMIT:-8g}
+    ports:
+      # PUBLISHED UNDER THE NUMBERS THEY BIND, NEVER TRANSLATED. The server is
+      # told both ports and advertises them itself; map one number on the host
+      # to another in the container and players are pointed at a port nobody
+      # can reach. Change a port by changing the variable, which moves both
+      # sides.
+      - "${HUMANITZ_SERVER_PORT:-7777}:${HUMANITZ_SERVER_PORT:-7777}/udp"
+      - "${HUMANITZ_SERVER_QUERY_PORT:-27015}:${HUMANITZ_SERVER_QUERY_PORT:-27015}/udp"
+      # RCON (8888/tcp) IS PUBLISHED NOWHERE. Everything here that talks to
+      # it does so from inside the container (scripts/rcon.sh), so the
+      # password is not the only thing standing between the internet and a
+      # console that can ban, kick and save.
+    environment:
+      # The image bakes GAMESERVER=hzserver, UID/GID 1000 and the /data
+      # layout; named anyway so the contract is visible without docker inspect.
+      GAMESERVER: hzserver
+      # LINUXGSM'S OWN HOURLY UPDATE IS OFF. The image's default (60) installs
+      # a cron job that runs `hzserver update` every hour, and an update
+      # restarts the server whoever is on. LinuxGSM can hold an update for
+      # players only by asking the game's Steam query, which HumanitZ does
+      # not answer, so to it the server always looks empty. Updates come from
+      # scripts/refresh.sh, which counts players over RCON and treats an
+      # unknown count as occupied.
+      UPDATE_CHECK: "0"
+      # So a restart IS an update: LinuxGSM fetches the new build on start,
+      # and scripts/refresh.sh restarts only an empty server that is behind.
+      UPDATE_ON_START: "true"
+      HUMANITZ_SERVER_NAME: ${HUMANITZ_SERVER_NAME:-HumanitZ Server}
+      # Empty means anyone who finds the server can join.
+      HUMANITZ_SERVER_PASSWORD: ${HUMANITZ_SERVER_PASSWORD:-}
+      HUMANITZ_ADMIN_PASSWORD: ${HUMANITZ_ADMIN_PASSWORD:?set in .env - see .env.example for generation command}
+      HUMANITZ_RCON_PASSWORD: ${HUMANITZ_RCON_PASSWORD:?set in .env - see .env.example for generation command}
+      HUMANITZ_MAX_PLAYERS: ${HUMANITZ_MAX_PLAYERS:-16}
+      HUMANITZ_SERVER_PORT: ${HUMANITZ_SERVER_PORT:-7777}
+      HUMANITZ_SERVER_QUERY_PORT: ${HUMANITZ_SERVER_QUERY_PORT:-27015}
+      TZ: ${HUMANITZ_SERVER_TIMEZONE:-UTC}
+    volumes:
+      # EVERYTHING LIVES HERE: the 1.4 GB of game files SteamCMD can download
+      # again, LinuxGSM's state, and under serverfiles/HumanitZServer the one
+      # thing it cannot: the world, the settings and the ban list.
+      # scripts/backup.sh archives only those, and scripts/restore.sh puts
+      # them back at exactly that path.
+      - humanitz-server-data:/data
+      - ./scripts/start.sh:/opt/humanitz/start.sh:ro
+    healthcheck:
+      # THE GAME, NOT THE WRAPPER. A check that passes while SteamCMD is still
+      # downloading is believed and wrong. /proc rather than pgrep, which
+      # matches its own command line; a comm file holds fifteen characters
+      # ("HumanitZServer-"), hence the prefix and the anchor.
+      # tests/e2e-healthcheck.sh runs it against a real container, in both
+      # directions.
+      test: ["CMD-SHELL", "grep -qs '^HumanitZServer' /proc/[0-9]*/comm"]
+      interval: 20s
+      timeout: 10s
+      retries: 3
+      # The first start downloads the game (78 seconds and 1.4 GB on a CI
+      # runner); later ones may update it.
+      start_period: ${HUMANITZ_SERVER_START_PERIOD:-30m}
+    # LinuxGSM stops the server with Ctrl+C and the world is written on the
+    # way down. Docker's default ten seconds would cut that off.
+    stop_grace_period: ${HUMANITZ_SERVER_STOP_GRACE_PERIOD:-2m}
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: ${HUMANITZ_SERVER_LOG_MAX_SIZE:-10m}
+        max-file: "${HUMANITZ_SERVER_LOG_MAX_FILE:-3}"
+
+# DECLARED EXTERNAL SO `docker compose down -v` CANNOT DELETE IT.
+#
+# `down -v` is the command everybody reaches for when a stack misbehaves. On a
+# project-managed volume it removes the world without asking. As an external
+# volume compose mounts it and refuses to create or destroy it. Create it
+# before the first start:
+#
+#   docker volume create humanitz-server-data
+#
+# Removing it is then a deliberate act that names the thing being destroyed.
+volumes:
+  humanitz-server-data:
+    name: humanitz-server-data
+    external: true

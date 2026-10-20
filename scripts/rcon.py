@@ -4,8 +4,9 @@
 # INSIDE, because the RCON port is published nowhere: nothing outside the
 # container can reach it, so the password is not the only lock on it.
 #
-# The password comes from the environment (RCON_PASSWORD), never argv, which
-# every process on the host can read.
+# The password comes from the container's own environment, where compose put
+# it (HUMANITZ_RCON_PASSWORD), never from argv, which every process on the
+# host can read. RCON_PASSWORD overrides it, for tests.
 #
 # HumanitZ's RCON, as measured on the server this template comes from:
 #   - authentication answers with an empty RESPONSE_VALUE first, then the
@@ -44,12 +45,55 @@ def read(sock):
     return request_id, kind, data[8:-2].decode("utf-8", "replace").replace("\r", "")
 
 
+def report_status(password, port):
+    """--status: one line of JSON. "Unknown" with players null when RCON does
+    not answer, never "Online" with 0: a dead probe must not claim an empty
+    server."""
+    import json
+    import re
+    import time
+    info = ""
+    for _ in range(3):
+        try:
+            sock = socket.create_connection(("127.0.0.1", port), 5)
+            sock.settimeout(5)
+            sock.sendall(packet(1, 3, password))
+            request_id, kind, _ = read(sock)
+            if kind != 2:
+                request_id, kind, _ = read(sock)
+            if request_id == 1:
+                sock.sendall(packet(10, 2, "info"))
+                info = read(sock)[2]
+                break
+        except (OSError, ConnectionError):
+            time.sleep(2)
+    found = re.search(r"^(\d+) connected\.", info, re.M)
+    season = re.search(r"^Season: (.+)$", info, re.M)
+    slots = None
+    try:
+        settings = os.environ.get("HUMANITZ_SETTINGS", "/data/serverfiles/HumanitZServer/GameServerSettings.ini")
+        for line in open(settings, encoding="utf-8", errors="replace"):
+            if line.startswith("MaxPlayers="):
+                slots = int(line.split("=", 1)[1].strip())
+                break
+    except (OSError, ValueError):
+        pass
+    print(json.dumps({"status": "Online" if found else "Unknown",
+                      "players": int(found.group(1)) if found else None,
+                      "max": slots,
+                      "season": season.group(1).strip() if season else None,
+                      "checked": int(time.time())}))
+    return 0 if found else 1
+
+
 def main():
-    password = os.environ.get("RCON_PASSWORD", "")
+    password = os.environ.get("RCON_PASSWORD") or os.environ.get("HUMANITZ_RCON_PASSWORD", "")
     port = int(os.environ.get("RCON_PORT", "8888"))
     commands = sys.argv[1:]
+    if commands == ["--status"] and password:
+        return report_status(password, port)
     if not password or not commands:
-        print("usage: RCON_PASSWORD=... python3 rcon.py <command> [command ...]", file=sys.stderr)
+        print("usage: python3 rcon.py <command> [command ...], with HUMANITZ_RCON_PASSWORD set", file=sys.stderr)
         return 2
     try:
         sock = socket.create_connection(("127.0.0.1", port), 5)

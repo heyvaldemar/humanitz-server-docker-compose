@@ -1,0 +1,149 @@
+name: Deployment Verification
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    # Daily: a LinuxGSM rebuild or a HumanitZ patch should be met within a day.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: deployment-verification-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # Authenticated requests avoid the anonymous API rate limit that shared
+  # GitHub runners regularly hit (api.github.com answers 403 otherwise).
+  GH_API_TOKEN: ${{ github.token }}
+
+jobs:
+  lint:
+    name: Lint workflow YAML
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: actionlint (GitHub Actions workflow linting)
+        run: |
+          docker run --rm -v "$PWD:/mnt" -w /mnt \
+            rhysd/actionlint:1.7.12 \
+            -color
+
+  scan-trivy:
+    name: Scan pinned upstream image with Trivy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      # Image refs are read from the compose file's x-images defaults at
+      # runtime: single source of truth.
+      fail-fast: false
+      matrix:
+        include:
+          - name: humanitz-server
+            env_var: HUMANITZ_SERVER_IMAGE_TAG
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Read pinned ${{ matrix.name }} image from the compose file
+        id: pin
+        env:
+          ENV_VAR: ${{ matrix.env_var }}
+        run: |
+          image="$(grep -m1 -oE "\\\$\\{${ENV_VAR}:-.*" humanitz-server-docker-compose.yml | sed -E -e ':a' -e 's/\$\{[A-Z0-9_]+:-([^{}]*)\}/\1/' -e 'ta')"
+          if [ -z "$image" ]; then
+            echo "${ENV_VAR} default not found in the compose x-images block" >&2
+            exit 1
+          fi
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
+      - name: Trivy scan of ${{ matrix.name }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.pin.outputs.image }}
+          format: sarif
+          output: trivy-${{ matrix.name }}.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          # FINDINGS DO NOT FAIL THIS STEP; A SCAN THAT CANNOT FINISH DOES.
+          # Stated here rather than left to the action's default, so a red run
+          # means a scanner that died, not a new CVE upstream.
+          exit-code: "0"
+
+      - name: Upload Trivy SARIF (${{ matrix.name }}) to GitHub Security
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: trivy-${{ matrix.name }}.sarif
+          category: trivy-${{ matrix.name }}
+
+  decisions:
+    name: The refresh, the status, the backup and restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: ShellCheck
+        # Pinned, and the same image a maintainer runs locally: Ubuntu's
+        # packaged shellcheck is a different version with different defaults.
+        run: |
+          docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.11.0 \
+            update.sh scripts/*.sh tests/*.sh
+
+      - name: The refresh restarts only an empty server, and silence is not empty
+        # A stand-in answers RCON the way HumanitZ does, in CRLF, with players,
+        # with nobody, or not at all, and prints LinuxGSM's build lines. Players
+        # on and silence must both leave it untouched, and silence must exit 1;
+        # the status says Unknown, never Online with 0.
+        run: ./tests/e2e-decisions.sh
+
+      - name: A world and its ban list go out and come back to the path the server reads
+        # By path and by byte, the archive mode 600, nothing one level too
+        # deep, what was there kept aside, the refusals leaving it untouched.
+        run: ./tests/e2e-backup-restore.sh
+
+      - name: The compose file parses with the shipped defaults
+        run: |
+          sed -E 's/^([A-Z0-9_]+)=$/\1=ci-placeholder/' .env.example > .env
+          docker compose -f humanitz-server-docker-compose.yml config >/dev/null
+          echo "compose OK"
+
+  game:
+    name: The real server, from an empty volume
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: An .env with throwaway passwords
+        # Made for this run, masked in the log, gone with the runner.
+        run: |
+          admin="$(openssl rand -hex 16)"; echo "::add-mask::$admin"
+          rcon="$(openssl rand -hex 16)"; echo "::add-mask::$rcon"
+          sed -E -e "s/^HUMANITZ_ADMIN_PASSWORD=$/HUMANITZ_ADMIN_PASSWORD=$admin/" \
+                 -e "s/^HUMANITZ_RCON_PASSWORD=$/HUMANITZ_RCON_PASSWORD=$rcon/" \
+                 -e "s/^HUMANITZ_SERVER_NAME=.*/HUMANITZ_SERVER_NAME=CI HumanitZ | verification/" \
+                 -e "s/^HUMANITZ_MAX_PLAYERS=.*/HUMANITZ_MAX_PLAYERS=8/" .env.example > .env
+          grep -cE '^HUMANITZ_(ADMIN|RCON)_PASSWORD=.{32}$' .env
+
+      - name: Install, start, settings, RCON, status, a ban, backup and restore, the health check
+        # On a failure the test prints the server's own log before removing it.
+        run: ./tests/e2e-game.sh
