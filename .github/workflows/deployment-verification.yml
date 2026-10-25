@@ -119,6 +119,12 @@ jobs:
         # deep, what was there kept aside, the refusals leaving it untouched.
         run: ./tests/e2e-backup-restore.sh
 
+      - name: A start does not wait for an npm registry that never answers
+        # The pinned image's own npm and the module LinuxGSM installs: done in
+        # seconds with the compose file's NPM_CONFIG_* settings, still waiting
+        # at ninety with npm's defaults.
+        run: ./tests/e2e-npm.sh
+
       - name: The compose file parses with the shipped defaults
         run: |
           sed -E 's/^([A-Z0-9_]+)=$/\1=ci-placeholder/' .env.example > .env
