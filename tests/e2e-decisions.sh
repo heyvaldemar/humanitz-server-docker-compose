@@ -165,10 +165,26 @@ start silent 100 101
 out="$(refresh --dry-run --force 2>&1)"; rc=$?
 if [ "$rc" = 0 ] && grep -q "players online: ?, forced" <<<"$out"; then pass "behind, RCON silent, --force: it would restart"; else fail "behind, RCON silent, --force: exit $rc, said: $out"; fi
 
-# 7. A build LinuxGSM did not print: nothing is decided on a guess.
+# 7. Steam's build missing, the installed one read: tolerated, the start noted.
+silent="$WORK/steam-silent"
 start players:0 100 ""
-out="$(refresh 2>&1)"; rc=$?
-if [ "$rc" = 1 ] && grep -q "could not read both builds" <<<"$out"; then pass "Steam's build missing: exit 1, nothing changed"; else fail "Steam's build missing: exit $rc, said: $out"; fi
+out="$(HUMANITZ_REFRESH_STEAM_SILENT_FILE="$silent" refresh 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -q "Steam did not say which build it ships (running build 100); quiet for 0 min, tolerated up to 180 min" <<<"$out" && [ -s "$silent" ]; then pass "Steam's build missing: tolerated, exit 0, the start noted"; else fail "Steam's build missing: exit $rc, said: $out"; fi
+
+# 7a. However often it runs, the span is what counts: quiet for four hours fails.
+echo "$(( $(date +%s) - 14400 ))" > "$silent"
+out="$(HUMANITZ_REFRESH_STEAM_SILENT_FILE="$silent" refresh 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q "for 240 min, past the 180 min tolerance" <<<"$out"; then pass "Steam silent for four hours: exit 1"; else fail "Steam silent past the span: exit $rc, said: $out"; fi
+
+# 7b. The installed build missing is a fault here: exit 1 at once, nothing decided.
+start players:0 "" 101
+out="$(HUMANITZ_REFRESH_STEAM_SILENT_FILE="$silent" refresh 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q "could not read both builds" <<<"$out"; then pass "installed build missing: exit 1, nothing changed"; else fail "installed build missing: exit $rc, said: $out"; fi
+
+# 7c. Steam answers again: the span starts over.
+start players:0 100 100
+out="$(HUMANITZ_REFRESH_STEAM_SILENT_FILE="$silent" refresh 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && [ ! -e "$silent" ]; then pass "Steam answers: the silence is forgotten"; else fail "Steam answers: exit $rc, file left: $([ -e "$silent" ] && echo yes), said: $out"; fi
 
 echo
 echo "=== the status, and what it says when nobody answers ==="

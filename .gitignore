@@ -2,3 +2,4 @@
 *.frozen.sh
 backups/
 __pycache__/
+.humanitz-refresh-steam-silent
