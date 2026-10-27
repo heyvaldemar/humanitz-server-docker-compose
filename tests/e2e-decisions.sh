@@ -176,6 +176,15 @@ echo "$(( $(date +%s) - 14400 ))" > "$silent"
 out="$(HUMANITZ_REFRESH_STEAM_SILENT_FILE="$silent" refresh 2>&1)"; rc=$?
 if [ "$rc" = 1 ] && grep -q "for 240 min, past the 180 min tolerance" <<<"$out"; then pass "Steam silent for four hours: exit 1"; else fail "Steam silent past the span: exit $rc, said: $out"; fi
 
+# 7a2. A start in the future would keep the silence young forever: it starts now.
+echo "$(( $(date +%s) + 86400 ))" > "$silent"
+out="$(HUMANITZ_REFRESH_STEAM_SILENT_FILE="$silent" refresh 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -q "quiet for 0 min" <<<"$out" && [ "$(cat "$silent")" -le "$(date +%s)" ]; then pass "a start in the future: re-anchored to now"; else fail "future start: exit $rc, said: $out"; fi
+
+# 7a3. A silence that cannot be recorded is not tolerated.
+out="$(HUMANITZ_REFRESH_STEAM_SILENT_FILE="/nonexistent-dir/silent" refresh 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q "cannot record when Steam went quiet" <<<"$out"; then pass "silence that cannot be recorded: exit 1"; else fail "unrecordable silence: exit $rc, said: $out"; fi
+
 # 7b. The installed build missing is a fault here: exit 1 at once, nothing decided.
 start players:0 "" 101
 out="$(HUMANITZ_REFRESH_STEAM_SILENT_FILE="$silent" refresh 2>&1)"; rc=$?
