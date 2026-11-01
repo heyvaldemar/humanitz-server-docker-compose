@@ -97,6 +97,24 @@ CI also lints the shell and the workflows, scans the pinned image with Trivy, an
 
 The game itself is Steam app 2728330, branch `linuxbranch`, downloaded anonymously by SteamCMD inside the container.
 
+### Verify what you deploy
+
+Every release carries three files made on GitHub's runner with a short-lived identity and no stored key: `humanitz-server-docker-compose-<tag>.tar.gz`, a `git archive` of exactly the tree the tag points at; `humanitz-server-docker-compose-<tag>.tar.gz.sigstore.json`, a keyless [Sigstore](https://www.sigstore.dev/) signature over it; and `humanitz-server-docker-compose-<tag>.intoto.jsonl`, [SLSA](https://slsa.dev/) build provenance from the SLSA generator. To check them with nothing from this repository trusted:
+
+```bash
+cosign verify-blob humanitz-server-docker-compose-<tag>.tar.gz \
+  --bundle humanitz-server-docker-compose-<tag>.tar.gz.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/heyvaldemar/humanitz-server-docker-compose/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+slsa-verifier verify-artifact humanitz-server-docker-compose-<tag>.tar.gz \
+  --provenance-path humanitz-server-docker-compose-<tag>.intoto.jsonl \
+  --source-uri github.com/heyvaldemar/humanitz-server-docker-compose \
+  --source-tag <tag>
+```
+
+Each release was signed by the run that published it, so its provenance names the tag. The workflow that makes them is [`release-assets.yml`](.github/workflows/release-assets.yml).
+
 ---
 
 ## About the maintainer
