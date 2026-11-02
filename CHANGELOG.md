@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_(no unreleased changes yet)_
+
+## [1.1.2] - 2026-11-02
+
 ### Fixed
 
 - **Docker cutting LinuxGSM's answer off is no longer taken for Steam going quiet.** LinuxGSM's `check-update` prints the local build before it asks Steam, so an exec cut off by a restart in between (exit 137 after the first line, measured on Docker 29.7.2) left the local build read and the remote one not. That is the shape of Steam's silence, which `scripts/refresh.sh` tolerates for three hours, so a Docker failure started the silence clock and exited 0. An exec that ends with 125 or more is now Docker failing, or the exec killed: nothing it printed is counted, no silence is noted, and the run exits 1 and says so. `tests/e2e-decisions.sh` case 7d plays the cut through a wrapper around the real `docker`; the released script fails it. On the server this template comes from, a chat bot read a Docker error on stdout as part of a game's log.
@@ -58,7 +62,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The world file is `Save_DedicatedSave.sav` with this template's settings**, not the `Save_DedicatedSaveMP.sav` the source server writes under other settings. The first real-server run failed its post-restore check on that name; the scripts already matched any `Save_*.sav`, which is why the byte-for-byte restore itself had passed.
 - **A crontab check that could pass for the wrong reason.** The first version passed on any answer without LinuxGSM's update line, an empty one from a failed `docker exec` included. Only "no crontab for linuxgsm", or a crontab read cleanly without that line, passes now.
 
-[Unreleased]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.0.2...v1.0.3
