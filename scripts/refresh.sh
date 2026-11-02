@@ -66,20 +66,37 @@ limit() { if command -v timeout >/dev/null 2>&1; then timeout "$@"; else shift; 
 cid="$(docker compose -p "$PROJECT" ps -q --status running humanitz-server 2>/dev/null || true)"
 [ -n "$cid" ] || { say "the server is not running; nothing to refresh"; exit 0; }
 
-# check-update <container>: LinuxGSM's own answer, colours removed.
+# check-update <container>: LinuxGSM's own answer, colours removed, and the
+# exec's own exit code (LinuxGSM's are 0 to 3, a timeout is 124).
 check_update() {
   limit 300 docker exec -u linuxgsm -w /app "$1" ./hzserver check-update 2>&1 | sed 's/\x1b\[[0-9;]*m//g'
+  return "${PIPESTATUS[0]}"
 }
 build_of() { grep -oE "$1 build: *[0-9]+" | grep -oE '[0-9]+$' | tail -1; }
 
-installed=""; latest=""
+# DOCKER CUTTING THE ANSWER OFF IS NOT STEAM GOING QUIET. LinuxGSM prints the
+# local build before it asks Steam, so an exec cut off by a restart in
+# between (exit 137 after part of the output, measured on Docker 29.7.2)
+# leaves the local build read and the remote one not: the shape of Steam's
+# silence below, which is tolerated for hours. An exec that ended with 125 or
+# more is Docker failing, or the exec killed, and nothing it printed is
+# counted.
+installed=""; latest=""; asked=0
 for attempt in 1 2; do
-  out="$(check_update "$cid")"
-  installed="$(build_of Local <<<"$out")"
-  latest="$(build_of Remote <<<"$out")"
-  [ -n "$installed" ] && [ -n "$latest" ] && break
+  out="$(check_update "$cid")"; asked=$?
+  if [ "$asked" -lt 125 ]; then
+    installed="$(build_of Local <<<"$out")"
+    latest="$(build_of Remote <<<"$out")"
+    [ -n "$installed" ] && [ -n "$latest" ] && break
+  else
+    installed=""; latest=""
+  fi
   [ "$attempt" = 1 ] && sleep "${HUMANITZ_REFRESH_RETRY_SECONDS:-20}"
 done
+if [ "$asked" -ge 125 ]; then
+  say "could not ask LinuxGSM: docker exec ended with $asked, so Docker failed or the exec was cut off; that is not Steam going quiet. Nothing changed" >&2
+  exit 1
+fi
 SILENT_FILE=${HUMANITZ_REFRESH_STEAM_SILENT_FILE:-.humanitz-refresh-steam-silent}
 TOLERANCE=${HUMANITZ_REFRESH_STEAM_TOLERANCE:-10800}
 if [ -n "$installed" ] && [ -z "$latest" ]; then

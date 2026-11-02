@@ -195,6 +195,26 @@ start players:0 100 100
 out="$(HUMANITZ_REFRESH_STEAM_SILENT_FILE="$silent" refresh 2>&1)"; rc=$?
 if [ "$rc" = 0 ] && [ ! -e "$silent" ]; then pass "Steam answers: the silence is forgotten"; else fail "Steam answers: exit $rc, file left: $([ -e "$silent" ] && echo yes), said: $out"; fi
 
+# 7d. DOCKER CUT THE ANSWER OFF. LinuxGSM prints the local build before it
+# asks Steam, and an exec cut off by a restart in between ends with 137 after
+# that first line (measured on Docker 29.7.2). It has the shape of Steam's
+# silence in case 7, and it is not: exit 1, and no silence noted. A wrapper
+# early in PATH plays the cut and passes every other docker call through.
+REAL_DOCKER="$(command -v docker)"
+mkdir -p "$WORK/bin"
+cat >"$WORK/bin/docker" <<'SH'
+#!/bin/bash
+case " $* " in
+  *" exec "*check-update*) printf '* Local build: 100\n'; exit 137 ;;
+esac
+exec "$REAL_DOCKER" "$@"
+SH
+chmod +x "$WORK/bin/docker"
+rm -f "$silent"
+start players:0 100 101
+out="$(PATH="$WORK/bin:$PATH" REAL_DOCKER="$REAL_DOCKER" HUMANITZ_REFRESH_STEAM_SILENT_FILE="$silent" refresh 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q "docker exec ended with 137" <<<"$out" && [ ! -e "$silent" ]; then pass "the answer cut off: exit 1, not counted as Steam's silence"; else fail "the answer cut off: exit $rc, silence noted: $([ -e "$silent" ] && echo yes || echo no), said: $out"; fi
+
 echo
 echo "=== the status, and what it says when nobody answers ==="
 echo

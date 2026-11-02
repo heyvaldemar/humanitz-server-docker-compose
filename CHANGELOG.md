@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_(no unreleased changes yet)_
+### Fixed
+
+- **Docker cutting LinuxGSM's answer off is no longer taken for Steam going quiet.** LinuxGSM's `check-update` prints the local build before it asks Steam, so an exec cut off by a restart in between (exit 137 after the first line, measured on Docker 29.7.2) left the local build read and the remote one not. That is the shape of Steam's silence, which `scripts/refresh.sh` tolerates for three hours, so a Docker failure started the silence clock and exited 0. An exec that ends with 125 or more is now Docker failing, or the exec killed: nothing it printed is counted, no silence is noted, and the run exits 1 and says so. `tests/e2e-decisions.sh` case 7d plays the cut through a wrapper around the real `docker`; the released script fails it. On the server this template comes from, a chat bot read a Docker error on stdout as part of a game's log.
 
 ## [1.1.1] - 2026-10-31
 
