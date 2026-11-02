@@ -46,15 +46,28 @@ services:
       - -c
       - |
         adduser -D -u 1000 linuxgsm 2>/dev/null
-        mkdir -p /app /data/serverfiles/HumanitZServer
+        mkdir -p /app /data/serverfiles/HumanitZServer /data/serverfiles/steamapps
         printf '[Host Settings]\nMaxPlayers=16\n' > /data/serverfiles/HumanitZServer/GameServerSettings.ini
-        # LinuxGSM's check-update, as it prints: coloured, with an empty
-        # LOCAL or REMOTE meaning that line is missing.
+        # The app manifest LinuxGSM reads the installed build from; an empty
+        # LOCAL means there is none.
+        [ -n "$$LOCAL" ] && printf '"AppState"\n{\n\t"appid"\t\t"2728330"\n\t"buildid"\t\t"%s"\n}\n' "$$LOCAL" > /data/serverfiles/steamapps/appmanifest_2728330.acf
+        # LinuxGSM's check-update as LinuxGSM v26.4.0 in the pinned image
+        # prints it (run with SteamCMD stubbed): status lines rewritten in
+        # place with \r and ESC[K; with no installed build it stops at
+        # "Checking local build"; with Steam quiet it stops at "Checking remote
+        # build" and prints NEITHER build; only with both does it print
+        # "Local build" and "Remote build", together, coloured.
         cat > /app/hzserver <<'SH'
         #!/bin/sh
         [ "$$1" = check-update ] || exit 1
-        [ -n "$$LOCAL" ] && printf '* Local build: \033[31m%s\033[0m\n' "$$LOCAL"
-        [ -n "$$REMOTE" ] && printf '* Remote build: \033[32m%s\033[0m\n' "$$REMOTE"
+        p() { printf '\r\033[K[%b] Check for Update hzserver: %s' "$$1" "$$2"; }
+        p ' .... ' 'Checking local build: SteamCMD'
+        if [ -z "$$LOCAL" ]; then p '\033[31m FAIL \033[0m' 'Checking local build: SteamCMD: missing local build info'; exit 1; fi
+        p '\033[32m  OK  \033[0m' 'Checking local build: SteamCMD'
+        p ' .... ' 'Checking remote build: SteamCMD'
+        if [ -z "$$REMOTE" ]; then p '\033[31m FAIL \033[0m' 'Checking remote build: SteamCMD'; exit 1; fi
+        p '\033[32m  OK  \033[0m' 'Checking remote build: SteamCMD'
+        printf '\n* Local build: \033[31m%s\033[0m\n* Remote build: \033[32m%s\033[0m\n' "$$LOCAL" "$$REMOTE"
         exit 0
         SH
         chmod +x /app/hzserver
@@ -195,17 +208,17 @@ start players:0 100 100
 out="$(HUMANITZ_REFRESH_STEAM_SILENT_FILE="$silent" refresh 2>&1)"; rc=$?
 if [ "$rc" = 0 ] && [ ! -e "$silent" ]; then pass "Steam answers: the silence is forgotten"; else fail "Steam answers: exit $rc, file left: $([ -e "$silent" ] && echo yes), said: $out"; fi
 
-# 7d. DOCKER CUT THE ANSWER OFF. LinuxGSM prints the local build before it
-# asks Steam, and an exec cut off by a restart in between ends with 137 after
-# that first line (measured on Docker 29.7.2). It has the shape of Steam's
-# silence in case 7, and it is not: exit 1, and no silence noted. A wrapper
-# early in PATH plays the cut and passes every other docker call through.
+# 7d. DOCKER CUT THE ANSWER OFF. An exec cut off by a restart ends with 137
+# after part of the output (measured on Docker 29.7.2): here, while LinuxGSM
+# is asking Steam. Whatever it printed, that is not Steam's silence: exit 1,
+# and no silence noted. A wrapper early in PATH plays the cut and passes every
+# other docker call through.
 REAL_DOCKER="$(command -v docker)"
 mkdir -p "$WORK/bin"
 cat >"$WORK/bin/docker" <<'SH'
 #!/bin/bash
 case " $* " in
-  *" exec "*check-update*) printf '* Local build: 100\n'; exit 137 ;;
+  *" exec "*check-update*) printf '\r\033[K[ .... ] Check for Update hzserver: Checking remote build: SteamCMD'; exit 137 ;;
 esac
 exec "$REAL_DOCKER" "$@"
 SH

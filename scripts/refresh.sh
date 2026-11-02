@@ -32,11 +32,21 @@
 # on the host was wrong. Its monitoring tolerated "three failures in a row",
 # written for one caller every three hours; a second caller made three strikes
 # land in 67 minutes, and it reported the host down. A count assumes a call
-# rate, and the rate changes with whoever asks. So when the installed build
-# reads and Steam's does not, this notes when Steam went quiet and exits 0
+# rate, and the rate changes with whoever asks. So when LinuxGSM reports that
+# it could not get Steam's build, this notes when Steam went quiet and exits 0
 # until it has been quiet for HUMANITZ_REFRESH_STEAM_TOLERANCE seconds (three
 # hours by default), however often it runs in between, and 1 after that. An
 # installed build that cannot be read is a fault here, and exits 1 at once.
+#
+# WHAT LINUXGSM PRINTS WHEN STEAM IS QUIET. Neither build. It prints "Local
+# build" and "Remote build" together, after it has asked Steam, and when Steam
+# gives no build it stops at "[ FAIL ] ... Checking remote build" and exits 1
+# (LinuxGSM v26.4.0 in the pinned image, run with SteamCMD answering nothing).
+# Until v1.1.3 this waited for a local build without a remote one, which
+# LinuxGSM never prints, and the stand-in in the tests printed exactly that:
+# so the tolerance above was never reached, and a quiet Steam failed the run at
+# once. Now the failure line is what says Steam is quiet, and the installed
+# build comes from the app manifest, the file LinuxGSM reads it from.
 #
 # tests/e2e-decisions.sh proves the decisions against a stand-in server.
 #   HUMANITZ_PROJECT   the compose project   (default humanitz)
@@ -69,25 +79,31 @@ cid="$(docker compose -p "$PROJECT" ps -q --status running humanitz-server 2>/de
 # check-update <container>: LinuxGSM's own answer, colours removed, and the
 # exec's own exit code (LinuxGSM's are 0 to 3, a timeout is 124).
 check_update() {
-  limit 300 docker exec -u linuxgsm -w /app "$1" ./hzserver check-update 2>&1 | sed 's/\x1b\[[0-9;]*m//g'
+  limit 300 docker exec -u linuxgsm -w /app "$1" ./hzserver check-update 2>&1 | sed 's/\x1b\[[0-9;]*[mK]//g' | tr '\r' '\n'
   return "${PIPESTATUS[0]}"
 }
 build_of() { grep -oE "$1 build: *[0-9]+" | grep -oE '[0-9]+$' | tail -1; }
+# The installed build from the app manifest, as a number, or nothing.
+APPID=2728330
+manifest_build() {
+  local out
+  out=$(docker exec "$1" sh -c "grep -oE '\"buildid\"[[:space:]]+\"[0-9]+\"' /data/serverfiles/steamapps/appmanifest_$APPID.acf 2>/dev/null | grep -oE '[0-9]+' | head -1" 2>/dev/null) || return 0
+  case "$out" in ''|*[!0-9]*) ;; *) echo "$out" ;; esac
+}
 
-# DOCKER CUTTING THE ANSWER OFF IS NOT STEAM GOING QUIET. LinuxGSM prints the
-# local build before it asks Steam, so an exec cut off by a restart in
-# between (exit 137 after part of the output, measured on Docker 29.7.2)
-# leaves the local build read and the remote one not: the shape of Steam's
-# silence below, which is tolerated for hours. An exec that ended with 125 or
-# more is Docker failing, or the exec killed, and nothing it printed is
-# counted.
-installed=""; latest=""; asked=0
+# DOCKER CUTTING THE ANSWER OFF IS NOT STEAM GOING QUIET. An exec that ended
+# with 125 or more is Docker failing, or the exec killed by a restart (137
+# after part of the output, measured on Docker 29.7.2), and nothing it printed
+# is counted: not as builds, and not as Steam's silence.
+installed=""; latest=""; asked=0; quiet_steam=false
 for attempt in 1 2; do
   out="$(check_update "$cid")"; asked=$?
+  quiet_steam=false
   if [ "$asked" -lt 125 ]; then
     installed="$(build_of Local <<<"$out")"
     latest="$(build_of Remote <<<"$out")"
     [ -n "$installed" ] && [ -n "$latest" ] && break
+    grep -qE '\[ FAIL \].*Checking remote build' <<<"$out" && quiet_steam=true
   else
     installed=""; latest=""
   fi
@@ -97,9 +113,10 @@ if [ "$asked" -ge 125 ]; then
   say "could not ask LinuxGSM: docker exec ended with $asked, so Docker failed or the exec was cut off; that is not Steam going quiet. Nothing changed" >&2
   exit 1
 fi
+$quiet_steam && [ -z "$installed" ] && installed="$(manifest_build "$cid")"
 SILENT_FILE=${HUMANITZ_REFRESH_STEAM_SILENT_FILE:-.humanitz-refresh-steam-silent}
 TOLERANCE=${HUMANITZ_REFRESH_STEAM_TOLERANCE:-10800}
-if [ -n "$installed" ] && [ -z "$latest" ]; then
+if $quiet_steam && [ -n "$installed" ]; then
   now_s=$(date +%s)
   if [ -L "$SILENT_FILE" ]; then
     say "$SILENT_FILE is a symlink; not following it, and not tolerating Steam's silence" >&2
@@ -126,7 +143,7 @@ if [ -n "$installed" ] && [ -z "$latest" ]; then
   exit 1
 fi
 if [ -z "$installed" ] || [ -z "$latest" ]; then
-  say "could not read both builds from LinuxGSM: installed '${installed:-?}', Steam '${latest:-?}'; nothing changed" >&2
+  say "could not read both builds from LinuxGSM: installed '${installed:-?}', Steam '${latest:-?}'; its last line: '$(grep -v '^[[:space:]]*$' <<<"$out" | tail -1)'; nothing changed" >&2
   exit 1
 fi
 rm -f "$SILENT_FILE"

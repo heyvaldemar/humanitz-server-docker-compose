@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_(no unreleased changes yet)_
+### Fixed
+
+- **Steam's silence is tolerated, as v1.1.0 said it would be.** `scripts/refresh.sh` took Steam to be quiet when LinuxGSM's `check-update` printed a local build without a remote one. LinuxGSM never prints that: it prints "Local build" and "Remote build" together, after it has asked Steam, and when Steam gives no build it stops at `[ FAIL ] ... Checking remote build` and exits 1, printing neither (LinuxGSM v26.4.0 in the pinned image, run with SteamCMD answering nothing). The stand-in in `tests/e2e-decisions.sh` printed the local build alone, so the tests passed while a quiet Steam failed every real run at once with "could not read both builds". The failure line is now what says Steam is quiet, and the installed build comes from the app manifest, the file LinuxGSM reads it from. The stand-in prints what LinuxGSM prints; the released script fails 4 of its checks.
+
+### Changed
+
+- **The v1.1.2 note was wrong about LinuxGSM.** It said LinuxGSM prints the local build before it asks Steam, so a read cut off between the two looked like Steam's silence. LinuxGSM prints both after it asks; the window between them is two consecutive lines. What v1.1.2 did is still right, for a different reason: an exec that ends with 125 or more is Docker failing or the exec killed, and nothing it printed counts, now also not as the `Checking remote build` failure. Case 7d cuts the read while LinuxGSM is asking Steam.
 
 ## [1.1.2] - 2026-11-02
 
