@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_(no unreleased changes yet)_
+
+## [1.1.3] - 2026-11-02
+
 ### Fixed
 
 - **Steam's silence is tolerated, as v1.1.0 said it would be.** `scripts/refresh.sh` took Steam to be quiet when LinuxGSM's `check-update` printed a local build without a remote one. LinuxGSM never prints that: it prints "Local build" and "Remote build" together, after it has asked Steam, and when Steam gives no build it stops at `[ FAIL ] ... Checking remote build` and exits 1, printing neither (LinuxGSM v26.4.0 in the pinned image, run with SteamCMD answering nothing). The stand-in in `tests/e2e-decisions.sh` printed the local build alone, so the tests passed while a quiet Steam failed every real run at once with "could not read both builds". The failure line is now what says Steam is quiet, and the installed build comes from the app manifest, the file LinuxGSM reads it from. The stand-in prints what LinuxGSM prints; the released script fails 4 of its checks.
@@ -68,7 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The world file is `Save_DedicatedSave.sav` with this template's settings**, not the `Save_DedicatedSaveMP.sav` the source server writes under other settings. The first real-server run failed its post-restore check on that name; the scripts already matched any `Save_*.sav`, which is why the byte-for-byte restore itself had passed.
 - **A crontab check that could pass for the wrong reason.** The first version passed on any answer without LinuxGSM's update line, an empty one from a failed `docker exec` included. Only "no crontab for linuxgsm", or a crontab read cleanly without that line, passes now.
 
-[Unreleased]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.0.3...v1.1.0
