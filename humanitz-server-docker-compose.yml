@@ -12,7 +12,7 @@
 # into the volume below on the first start and brought up to date on starts
 # after it. HumanitZ patches arrive through scripts/refresh.sh.
 x-images:
-  humanitz-server: &humanitz-server-image ${HUMANITZ_SERVER_IMAGE_TAG:-gameservermanagers/gameserver:${HUMANITZ_SERVER_IMAGE_VERSION:-hz@sha256:73922a91b5cb7e4f7d5d7b43faefb2c8d189940e145800b12f1f561fa3a9a25d}}
+  humanitz-server: &humanitz-server-image ${HUMANITZ_SERVER_IMAGE_TAG:-gameservermanagers/gameserver:${HUMANITZ_SERVER_IMAGE_VERSION:-hz@sha256:4c737517a14a866980f06d528bcefe702757e5d2c2b535ff2ecac8198cad0adf}}
 
 services:
   humanitz-server:
