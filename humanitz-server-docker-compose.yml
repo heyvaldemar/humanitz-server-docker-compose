@@ -105,15 +105,21 @@ services:
       # them back at exactly that path.
       - humanitz-server-data:/data
       - ./scripts/start.sh:/opt/humanitz/start.sh:ro
+      # The health check: RCON `info` from inside (see healthcheck: below).
+      - ./scripts/healthcheck.py:/opt/humanitz/healthcheck.py:ro
     healthcheck:
-      # THE GAME, NOT THE WRAPPER. A check that passes while SteamCMD is still
-      # downloading is believed and wrong. /proc rather than pgrep, which
-      # matches its own command line; a comm file holds fifteen characters
-      # ("HumanitZServer-"), hence the prefix and the anchor.
-      # tests/e2e-healthcheck.sh runs it against a real container, in both
-      # directions.
-      test: ["CMD-SHELL", "grep -qs '^HumanitZServer' /proc/[0-9]*/comm"]
-      interval: 20s
+      # THE GAME'S OWN ANSWER, NOT ITS PROCESS. scripts/healthcheck.py logs in
+      # to the game's RCON on 127.0.0.1, asks `info` and is healthy only on the
+      # reply's "N connected." line, which only the running game writes. Up to
+      # v1.1.6 this looked for HumanitZServer in /proc, and a hung or stopped
+      # game keeps its process; tests/e2e-game.sh stops it with SIGSTOP and
+      # requires red. Not the log either: an empty server writes nothing.
+      # Every connect and read shares an 8-second deadline, inside timeout.
+      # Every 30 seconds rather than 20, as each check is an RCON login.
+      # It asks from inside the container: it does not prove the game port is
+      # published on the host or open in a firewall.
+      test: ["CMD", "python3", "/opt/humanitz/healthcheck.py"]
+      interval: 30s
       timeout: 10s
       retries: 3
       # The first start downloads the game (78 seconds and 1.4 GB on a CI

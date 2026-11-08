@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The health check asks the game over RCON, not its process.** It looked for `HumanitZServer` in `/proc`, which a hung or stopped game keeps. `scripts/healthcheck.py`, mounted read-only, logs in to RCON on 127.0.0.1, asks `info` and is healthy only on the game's "N connected." line; every connect and read shares an 8-second deadline, inside Docker's 10. It runs every 30 seconds instead of 20, as each check is an RCON login. It asks from inside the container, so it does not prove the game port is published on the host or open in a firewall; the README says so. `tests/e2e-game.sh` stops the game with SIGSTOP and requires it red while the old check stays green, then green again after SIGCONT.
 - **The Docker Engine 29.4.2 note links GitHub's runner-image issue and its fix.** [actions/runner-images#14790](https://github.com/actions/runner-images/issues/14790) is the ubuntu-26.04 image shipping that release; [actions/runner-images#15205](https://github.com/actions/runner-images/pull/15205) moves it to 29.7.2. Documentation only.
 
 ## [1.1.6] - 2026-11-08

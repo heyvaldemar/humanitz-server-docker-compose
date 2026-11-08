@@ -8,8 +8,8 @@
 # a CI runner), so this is not a stand-in: the settings written from .env, the
 # status over RCON, the silence of the Steam query, RCON published nowhere,
 # LinuxGSM's hourly update absent, a ban through RCON, a backup flushed by RCON
-# and restored file by file, and the health check going red when the game
-# dies inside a container that keeps running.
+# and restored file by file, and the health check (RCON `info`) going red
+# when the game stops or dies inside a container that keeps running.
 #
 # It creates and removes its own volume and compose project, so it never
 # touches a server already running here.
@@ -149,11 +149,25 @@ fi
 
 echo; echo "--- the health check, in both directions"
 cid="$(compose ps -q humanitz-server)"
-check="$(docker inspect -f '{{index .Config.Healthcheck.Test 1}}' "$cid")"
-if docker exec "$cid" sh -c "$check"; then pass "with the game running, the check is green"; else fail "the check is red with the game running"; fi
+hc() { docker exec "$cid" python3 /opt/humanitz/healthcheck.py >/dev/null 2>&1; }
+old_check() { docker exec "$cid" sh -c "grep -qs '^HumanitZServer' /proc/[0-9]*/comm"; }
+if hc; then pass "with the game running, the check is green: $(docker exec "$cid" python3 /opt/humanitz/healthcheck.py 2>&1)"; else fail "the check is red with the game running: $(docker exec "$cid" python3 /opt/humanitz/healthcheck.py 2>&1)"; fi
+# A stopped game keeps its process: the check up to v1.1.6 (/proc) stays green
+# over it, and this one must not.
+pid="$(docker exec "$cid" sh -c 'for p in /proc/[0-9]*; do case "$(cat $p/comm 2>/dev/null)" in HumanitZServer*) echo "${p##*/}";; esac; done' | head -1)"
+if [ -z "$pid" ]; then
+  fail "no HumanitZServer process to stop"
+else
+  docker exec "$cid" sh -c "kill -STOP $pid"
+  s=$SECONDS; o=0; old_check || o=$?; n=0; hc || n=$?; took=$((SECONDS - s))
+  docker exec "$cid" sh -c "kill -CONT $pid"
+  if [ "$o" = 0 ] && [ "$n" = 1 ]; then pass "the game stopped: the /proc check stays green, this one goes red (${took}s for both)"; else fail "the game stopped: the /proc check exits $o, this one $n"; fi
+  ok=false; for _ in $(seq 1 15); do hc && { ok=true; break; }; sleep 2; done
+  if [ "$ok" = true ]; then pass "after SIGCONT the game answers again"; else fail "after SIGCONT the game did not answer"; fi
+fi
 docker exec "$cid" sh -c 'for p in /proc/[0-9]*; do case "$(cat $p/comm 2>/dev/null)" in HumanitZServer*) kill -9 "${p##*/}";; esac; done' 2>/dev/null
 sleep 3
-if [ "$(docker inspect -f '{{.State.Running}}' "$cid")" = true ] && ! docker exec "$cid" sh -c "$check"; then
+if [ "$(docker inspect -f '{{.State.Running}}' "$cid")" = true ] && ! hc; then
   pass "the game killed and the container still running: the check goes red"
 else
   fail "after killing the game, the check stayed green or the container stopped"
