@@ -72,6 +72,10 @@ if healthy 90 && rcon_ready; then
 else
   fail "the server did not come up healthy with RCON answering"
   compose logs --tail 80 humanitz-server
+  cid="$(compose ps -q humanitz-server)"
+  echo "--- the health check's own words, last runs"
+  docker inspect "$cid" --format '{{range .State.Health.Log}}exit {{.ExitCode}}: {{.Output}}{{end}}' 2>&1 | tail -c 1500
+  echo "--- scripts/rcon.sh info: $(scripts/rcon.sh info 2>&1 | head -3 | tr '\n' ' ')"
   echo; echo "passed: $PASSED   failed: $FAILED"; exit 1
 fi
 

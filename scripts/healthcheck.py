@@ -71,6 +71,7 @@ def main():
     if not password:
         print("unhealthy: HUMANITZ_RCON_PASSWORD is not set in the container", file=sys.stderr)
         return 1
+    body = ""
     try:
         sock = socket.create_connection(("127.0.0.1", port), left())
         sock.sendall(packet(1, 3, password))
@@ -81,17 +82,19 @@ def main():
         if request_id == -1:
             print("unhealthy: the game refused the RCON password", file=sys.stderr)
             return 1
+        # Whatever id the reply carries: scripts/rcon.py does not match it
+        # either, and the reply is read until the line shows or time is up.
         sock.sendall(packet(10, 2, "info"))
-        while True:
-            request_id, _, body = read(sock)
-            if request_id == 10:
-                break
+        body = ""
+        found = None
+        while not found:
+            body += read(sock)[2] + "\n"
+            found = re.search(r"^(\d+) connected\.", body, re.M)
     except (OSError, ConnectionError, TimeoutError, struct.error) as error:
-        print("unhealthy: no RCON answer on 127.0.0.1:%d (%s)" % (port, error), file=sys.stderr)
-        return 1
-    found = re.search(r"^(\d+) connected\.", body, re.M)
-    if not found:
-        print("unhealthy: the game answered info without its 'connected.' line", file=sys.stderr)
+        if body.strip():
+            print("unhealthy: the game answered info without its 'connected.' line", file=sys.stderr)
+        else:
+            print("unhealthy: no RCON answer on 127.0.0.1:%d (%s)" % (port, error), file=sys.stderr)
         return 1
     print("healthy: the game answered RCON info (%s connected)" % found.group(1))
     return 0
