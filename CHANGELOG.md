@@ -7,11 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_(no unreleased changes yet)_
+
+## [1.2.0] - 2026-11-08
+
 ### Changed
 
 - **The health check asks the game over RCON, not its process.** It looked for `HumanitZServer` in `/proc`, which a hung or stopped game keeps. `scripts/healthcheck.py`, mounted read-only, logs in to RCON on 127.0.0.1, asks `info` and is healthy only on the game's "N connected." line; every connect and read shares an 8-second deadline, inside Docker's 10. It runs every 30 seconds instead of 20, as each check is an RCON login. It asks from inside the container, so it does not prove the game port is published on the host or open in a firewall; the README says so. `tests/e2e-game.sh` stops the game with SIGSTOP and requires it red while the old check stays green, then green again after SIGCONT.
 - **The Docker Engine 29.4.2 note links GitHub's runner-image issue and its fix.** [actions/runner-images#14790](https://github.com/actions/runner-images/issues/14790) is the ubuntu-26.04 image shipping that release; [actions/runner-images#15205](https://github.com/actions/runner-images/pull/15205) moves it to 29.7.2. Documentation only.
-
 ## [1.1.6] - 2026-11-08
 
 ### Fixed
@@ -96,7 +99,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The world file is `Save_DedicatedSave.sav` with this template's settings**, not the `Save_DedicatedSaveMP.sav` the source server writes under other settings. The first real-server run failed its post-restore check on that name; the scripts already matched any `Save_*.sav`, which is why the byte-for-byte restore itself had passed.
 - **A crontab check that could pass for the wrong reason.** The first version passed on any answer without LinuxGSM's update line, an empty one from a failed `docker exec` included. Only "no crontab for linuxgsm", or a crontab read cleanly without that line, passes now.
 
-[Unreleased]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.1.6...HEAD
+[Unreleased]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.1.6...v1.2.0
 [1.1.6]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.1.5...v1.1.6
 [1.1.5]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.1.3...v1.1.4
