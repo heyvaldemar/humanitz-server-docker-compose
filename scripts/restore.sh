@@ -69,7 +69,7 @@ if [ "$worlds" -lt 1 ] || [ "$outside" -gt 0 ]; then
 fi
 
 stamp="$(date +%Y%m%d-%H%M%S)"
-docker run --rm -v "$VOLUME":/data -v "$DIR":/in:ro -e STAMP="$stamp" -e FILE="$FILE" -e BASE="$BASE" alpine:3.20 sh -euc '
+STAMP="$stamp" FILE="$FILE" BASE="$BASE" docker run --rm -v "$VOLUME":/data -v "$DIR":/in:ro -e STAMP -e FILE -e BASE alpine:3.20 sh -euc '
   mkdir -p "$BASE/Saved"
   aside="$BASE/before-restore-$STAMP"
   mkdir -p "$aside"
@@ -87,14 +87,14 @@ docker run --rm -v "$VOLUME":/data -v "$DIR":/in:ro -e STAMP="$stamp" -e FILE="$
 # level too deep.
 files="$(grep -vE '/$' <<<"$listing")"
 expected="$(grep -c . <<<"$files")"
-found="$(docker run --rm -i -v "$VOLUME":/data:ro -e BASE="$BASE" alpine:3.20 \
+found="$(BASE="$BASE" docker run --rm -i -v "$VOLUME":/data:ro -e BASE alpine:3.20 \
   sh -c 'n=0; while IFS= read -r f; do if [ -f "$BASE/$f" ]; then n=$((n + 1)); else echo "not at its live path: HumanitZServer/$f" >&2; fi; done; echo "$n"' <<<"$files")"
 missing=0
 if [ "${found:-0}" != "$expected" ]; then
   echo "${found:-0} of $expected file(s) are at their live path" >&2
   missing=1
 fi
-if docker run --rm -v "$VOLUME":/data:ro -e BASE="$BASE" alpine:3.20 sh -c 'test -e "$BASE/Saved/Saved" || test -e "$BASE/Saved/SaveGames/SaveGames" || test -e /data/Saved'; then
+if BASE="$BASE" docker run --rm -v "$VOLUME":/data:ro -e BASE alpine:3.20 sh -c 'test -e "$BASE/Saved/Saved" || test -e "$BASE/Saved/SaveGames/SaveGames" || test -e /data/Saved'; then
   echo "a Saved directory landed one level too deep or at the volume's root; the server would not find the world" >&2
   missing=$((missing + 1))
 fi

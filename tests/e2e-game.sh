@@ -48,7 +48,7 @@ cleanup() {
   rm -rf "$WORK"
 }
 trap cleanup EXIT
-vol() { docker run --rm -v "$HUMANITZ_VOLUME":/data -e BASE="$BASE" -e WORLD="$WORLD" alpine:3.20 sh -c "$1"; }
+vol() { BASE="$BASE" WORLD="$WORLD" docker run --rm -v "$HUMANITZ_VOLUME":/data -e BASE -e WORLD alpine:3.20 sh -c "$1"; }
 env_value() { grep -E "^$1=" .env | head -1 | cut -d= -f2-; }
 healthy() {
   for _ in $(seq 1 "$1"); do

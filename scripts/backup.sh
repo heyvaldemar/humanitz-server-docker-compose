@@ -87,7 +87,7 @@ NAME="$(basename "$BACKUP_FILE")"
 # Written as .partial, by root (the settings file is the game user's, mode
 # 600), then handed to the user running this, mode 600; renamed only if tar
 # succeeded and the archive holds a world file.
-if docker run --rm -v "$VOLUME":/data:ro -v "$OUT":/out -e OWNER="$(id -u):$(id -g)" alpine:3.20 sh -c \
+if OWNER="$(id -u):$(id -g)" docker run --rm -v "$VOLUME":/data:ro -v "$OUT":/out -e OWNER alpine:3.20 sh -c \
      'cd "$1" || exit 1
       set -- "$2" Saved/SaveGames GameServerSettings.ini
       [ -f F_BannedPlayers.txt ] && set -- "$@" F_BannedPlayers.txt

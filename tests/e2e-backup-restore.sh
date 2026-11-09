@@ -36,7 +36,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-vol() { docker run --rm -v "$HUMANITZ_VOLUME":/data -e BASE="$BASE" alpine:3.20 sh -c "$1"; }
+vol() { BASE="$BASE" docker run --rm -v "$HUMANITZ_VOLUME":/data -e BASE alpine:3.20 sh -c "$1"; }
 sums() { vol 'cd "$BASE" && find Saved/SaveGames GameServerSettings.ini F_BannedPlayers.txt -type f 2>/dev/null | sort | xargs sha256sum'; }
 
 echo "=== backup and restore, by path and by byte ==="
