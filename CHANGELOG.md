@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`gameservermanagers/gameserver:hz` was rebuilt upstream**; the pin moved from `sha256:4c737517a14a…` to `sha256:3c4737bb810d…`. Same version, same tag, a rebuilt base image — the usual shape of a security fix in a base layer.
+
 ### Changed
 
 - **Helper containers take their values by name.** The backup and restore helpers were started with `-e OWNER=…`, `-e STAMP=…`, `-e FILE=…` and `-e BASE=…`, and the tests' volume helper with `-e BASE=…` and `-e WORLD=…`. None of them is a secret, but fleet conformance now flags any value expanded into `-e NAME=` (a name says nothing about what it carries), so each is set for that one command and passed as `-e NAME`. Nothing a deployment does changes.
