@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_(no unreleased changes yet)_
+
+## [1.3.1] - 2026-11-14
+
 ### Changed
 
 - **A comment in `scripts/rcon.py` no longer reads like a password to a secret scanner.** It named the override variable followed by the word "overrides", which a common literal-secret pattern (an rcon password name, a space, eight letters or more) takes for a value; a pre-commit scanner refused the file for someone copying it. Reworded; nothing else changed.
@@ -125,7 +129,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The world file is `Save_DedicatedSave.sav` with this template's settings**, not the `Save_DedicatedSaveMP.sav` the source server writes under other settings. The first real-server run failed its post-restore check on that name; the scripts already matched any `Save_*.sav`, which is why the byte-for-byte restore itself had passed.
 - **A crontab check that could pass for the wrong reason.** The first version passed on any answer without LinuxGSM's update line, an empty one from a failed `docker exec` included. Only "no crontab for linuxgsm", or a crontab read cleanly without that line, passes now.
 
-[Unreleased]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.1.6...v1.2.0
