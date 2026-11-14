@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_(no unreleased changes yet)_
+
+## [1.3.0] - 2026-11-14
+
 ### Security
 
 - **No password in `docker compose logs`, now or after a LinuxGSM fix.** LinuxGSM's `details`, which the image runs after every start, prints the admin password it finds in the settings file. It looks for `AdminPassword`, a key HumanitZ does not use (the game's is `AdminPass`), so it prints "NOT SET" today; with that key there, the image's own entrypoint prints the value (`tests/e2e-start.sh`). `scripts/start.sh` now stays process 1 and runs the image's entrypoint behind a filter that masks the value on any line whose label says "pass", in any case, and of any `…Password=` setting.
@@ -119,7 +123,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The world file is `Save_DedicatedSave.sav` with this template's settings**, not the `Save_DedicatedSaveMP.sav` the source server writes under other settings. The first real-server run failed its post-restore check on that name; the scripts already matched any `Save_*.sav`, which is why the byte-for-byte restore itself had passed.
 - **A crontab check that could pass for the wrong reason.** The first version passed on any answer without LinuxGSM's update line, an empty one from a failed `docker exec` included. Only "no crontab for linuxgsm", or a crontab read cleanly without that line, passes now.
 
-[Unreleased]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.1.6...v1.2.0
 [1.1.6]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.1.5...v1.1.6
