@@ -105,6 +105,8 @@ services:
       # them back at exactly that path.
       - humanitz-server-data:/data
       - ./scripts/start.sh:/opt/humanitz/start.sh:ro
+      # The RCON client start.sh asks for a save with before a stop.
+      - ./scripts/rcon.py:/opt/humanitz/rcon.py:ro
       # The health check: RCON `info` from inside (see healthcheck: below).
       - ./scripts/healthcheck.py:/opt/humanitz/healthcheck.py:ro
     healthcheck:
@@ -125,8 +127,10 @@ services:
       # The first start downloads the game (78 seconds and 1.4 GB on a CI
       # runner); later ones may update it.
       start_period: ${HUMANITZ_SERVER_START_PERIOD:-30m}
-    # LinuxGSM stops the server with Ctrl+C and the world is written on the
-    # way down. Docker's default ten seconds would cut that off.
+    # A stop asks the game to save over RCON (up to 30 seconds), then LinuxGSM
+    # stops it with Ctrl+C: the game itself does not save on Ctrl+C
+    # (scripts/start.sh says how that was measured). Docker's default ten
+    # seconds would cut the save off.
     stop_grace_period: ${HUMANITZ_SERVER_STOP_GRACE_PERIOD:-2m}
     restart: unless-stopped
     logging:

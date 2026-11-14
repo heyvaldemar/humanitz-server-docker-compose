@@ -1,6 +1,7 @@
 #!/bin/bash
 # The container's entrypoint: install on the first start, write the settings
-# this .env owns, then hand over to the image's own entrypoint.
+# this .env owns, then run the image's own entrypoint, its output behind a
+# filter that keeps passwords out of the logs (the end of this file).
 #
 # WHY A WRAPPER. LinuxGSM installs the game only into an empty serverfiles
 # directory, so a settings file cannot be put there before the first start; and
@@ -111,4 +112,68 @@ chown 1000:1000 "$INI" "$LGSM_CFG"
 chmod 600 "$INI"
 echo "start.sh: settings written: \"$name\", $slots slots, ports $port/udp and $qport/udp, RCON inside the container only"
 
-exec /app/entrypoint.sh "$@"
+# THE IMAGE'S ENTRYPOINT RUNS AS A CHILD OF THIS SCRIPT, which stays process
+# 1, so that what it prints passes a filter on its way to `docker compose
+# logs`. LinuxGSM's `details`, which the image runs after every start, prints
+# the passwords it finds in the settings file in clear ("Admin password:").
+# Today it looks for a key HumanitZ does not use (AdminPassword; the game's is
+# AdminPass) and prints "NOT SET"; one LinuxGSM fix away, it would print the
+# admin password on every start. On a line whose label says "pass", in any
+# case, the value is masked, and so is the value of any setting whose name
+# says it; an empty value and "NOT SET" stay as they are.
+#
+# A STOP SAVES THE WORLD FIRST. LinuxGSM stops HumanitZ with Ctrl+C, and the
+# game does not save on its way down: measured in CI, a stop took 11 seconds
+# and exit 0, and the world file was not written (its time the same before
+# and after the stop, run 43617612417), so whatever happened since the last
+# autosave (300 seconds by default) was lost on every stop, restart and
+# update. On Docker's SIGTERM (or INT) this asks the game to save over RCON,
+# from inside the container with the password from its own environment
+# (scripts/rcon.py, mounted read-only), and waits up to 30 seconds for the
+# game's "Game saved"; then it hands the signal to the image's entrypoint,
+# which runs `hzserver stop` as it always has. When that is done, the image's
+# tail of the log files, which nothing else ends, is stopped (the kernel kills
+# everything left in a container the moment process 1 exits), the filter is
+# given the last lines, and this exits with the entrypoint's status.
+set +e
+filter() {
+  exec sed -u -E \
+    -e '/^[^:=]*pass[^:=]*:[[:space:]]*(NOT SET)?[[:space:]]*$/Ib' \
+    -e 's/^([^:=]*pass[^:=]*:[[:space:]]*)[^[:space:]].*$/\1********/I' \
+    -e 's/(pass[a-z_]*[[:space:]]*=[[:space:]]*"?)[^[:space:]"?&]+/\1********/Ig'
+}
+exec 4> >(filter)
+fpid=$!
+# Its own process: bash starts a background job with INT and QUIT ignored,
+# and the image's handler for them needs them back.
+( trap - INT QUIT; exec /bin/bash /app/entrypoint.sh "$@" ) >&4 2>&1 4>&- &
+child=$!
+exec 4>&-
+saved=0
+# shellcheck disable=SC2329   # run by the traps below
+save_then() {  # signal: save the world once, then hand the signal on
+  local reply
+  if [ "$saved" = 0 ]; then
+    saved=1
+    reply=$(timeout 30 python3 /opt/humanitz/rcon.py save 2>&1 | tr -d '\r' | grep -m1 'Game saved')
+    if [ -n "$reply" ]; then
+      echo "start.sh: stopping: the game answered \"$reply\" to RCON save; LinuxGSM stops it now"
+    else
+      echo "start.sh: stopping: RCON save got no \"Game saved\" within 30 seconds (still starting, or hung); the world is as of the last autosave"
+    fi
+  fi
+  kill -"$1" "$child" 2>/dev/null
+}
+trap 'save_then TERM' TERM
+trap 'save_then INT' INT
+trap 'kill -QUIT "$child" 2>/dev/null' QUIT
+while kill -0 "$child" 2>/dev/null; do wait "$child"; done
+wait "$child"; rc=$?
+# What still holds the filter's pipe: the image's tail of the log files and
+# the shell that waits for it. The server itself is stopped by now.
+for p in /proc/[0-9]*; do
+  p=${p#/proc/}
+  [ "$p" = "$$" ] || [ "$p" = "$fpid" ] || kill -KILL "$p" 2>/dev/null
+done
+for _ in $(seq 1 50); do kill -0 "$fpid" 2>/dev/null || break; sleep 0.1; done
+exit "$rc"

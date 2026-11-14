@@ -62,6 +62,25 @@ rcon_ready() {
   return 1
 }
 
+# tests/secret-probe.sh: the join, admin and RCON passwords each have a
+# value of their own (planted into .env before this runs), and none may reach
+# docker compose logs, the logs on disk, a command line in the container or
+# the host's ps. In CI a missing values file is a failure, not a skip.
+export PROBE_PROJECT="$HUMANITZ_PROJECT" PROBE_COMPOSE="$COMPOSE"
+export PROBE_EXPECT="HUMANITZ_SERVER_PASSWORD HUMANITZ_ADMIN_PASSWORD HUMANITZ_RCON_PASSWORD"
+# LinuxGSM's copy of the console, its own script log, and the game's.
+export PROBE_GAME_LOGS="humanitz-server:/data/log/console/*.log humanitz-server:/data/log/script/*.log humanitz-server:/data/serverfiles/HumanitZServer/Saved/Logs/*.log"
+VALUES="${PROBE_VALUES:-${RUNNER_TEMP:-/tmp}/secret-probe.values}"
+probe() {  # label
+  local out rc=0
+  if [ ! -s "$VALUES" ]; then
+    if [ "${GITHUB_ACTIONS:-}" = true ]; then fail "secret probe ($1): no values file; tests/secret-probe.sh plant did not run"; else echo "  (secret probe skipped: run tests/secret-probe.sh plant first)"; fi
+    return
+  fi
+  out="$(tests/secret-probe.sh check "$1" 2>&1)" || rc=$?
+  if [ "$rc" = 0 ]; then pass "${out##*$'\n'}"; else fail "secret probe ($1): $(tr '\n' ' ' <<<"$out")"; fi
+}
+
 echo "=== the real server, from an empty volume ==="
 echo
 docker volume create "$HUMANITZ_VOLUME" >/dev/null
@@ -69,6 +88,7 @@ start=$(date +%s)
 compose up -d >/dev/null 2>&1
 if healthy 90 && rcon_ready; then
   pass "installed, started and answering RCON in $(( $(date +%s) - start ))s"
+  probe "first start"
 else
   fail "the server did not come up healthy with RCON answering"
   compose logs --tail 80 humanitz-server
@@ -131,10 +151,31 @@ if [ "$rc" = 0 ] && grep -q "up to date: build [0-9]" <<<"$out"; then pass "refr
 echo; echo "--- a ban, a backup and a restore"
 scripts/rcon.sh "ban $BANNED" >/dev/null 2>&1
 if vol 'grep -q "'"$BANNED"'" "$BASE/F_BannedPlayers.txt"' 2>/dev/null; then pass "RCON ban wrote the id to F_BannedPlayers.txt"; else fail "after RCON ban, F_BannedPlayers.txt does not hold the id"; fi
-out="$(scripts/backup.sh 2>&1)"; rc=$?
-if [ "$rc" = 0 ] && grep -q "backup OK.*the ban list; flushed by RCON save" <<<"$out"; then pass "backup: ${out#* * }"; else fail "backup exited $rc: $out"; fi
+# The backup asks RCON for a save; the probe watches every command line
+# while it runs.
+if [ -s "$VALUES" ]; then
+  rc=0; pout="$(tests/secret-probe.sh during "backup" bash -c 'scripts/backup.sh >"$1" 2>&1' _ "$WORK/backup.out" 2>&1)" || rc=$?
+  out="$(cat "$WORK/backup.out")"
+  if [ "$rc" = 0 ]; then pass "${pout##*$'\n'}"; else fail "backup under the probe: $(tr '\n' ' ' <<<"$pout")"; fi
+else
+  out="$(scripts/backup.sh 2>&1)"
+fi
+if grep -q "backup OK.*the ban list; flushed by RCON save" <<<"$out"; then pass "backup: ${out#* * }"; else fail "backup: $out"; fi
 archives=("$HUMANITZ_BACKUP_DIR"/humanitz-world-*.tar.gz); archive="${archives[0]}"
-compose stop -t 120 humanitz-server >/dev/null 2>&1
+# A STOP, MEASURED (tests/clean-stop.sh): seconds, the exit code, whether
+# Docker had to SIGKILL, and the game's "Game saved", which scripts/start.sh
+# asks for over RCON before LinuxGSM's Ctrl+C. The world file must be written
+# by the stop: the game does not save on Ctrl+C (run 43617612417: the file's
+# time the same before and after).
+before="$(vol 'stat -c %Y "$WORLD"' 2>/dev/null)"
+since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+out="$(CLEAN_STOP_PROJECT="$HUMANITZ_PROJECT" CLEAN_STOP_COMPOSE="$COMPOSE" tests/clean-stop.sh humanitz-server "Game saved" 2>&1)"; rc=$?
+after="$(vol 'stat -c %Y "$WORLD"' 2>/dev/null)"
+echo "  $out" | head -3
+echo "  the world file: modified at ${before:-?} before the stop, ${after:-?} after"
+echo "  the server's last words:"; docker logs --since "$since" "$(compose ps -aq humanitz-server)" 2>&1 | grep -a -i -E 'sav|shut|exit|stop|quit|kill|world' | tail -25 | sed 's/^/    /'
+if [ "$rc" = 0 ]; then pass "the stop: ${out%%$'\n'*}"; else fail "the stop: $out"; fi
+if [ -n "$before" ] && [ -n "$after" ] && [ "$after" -gt "$before" ]; then pass "the stop wrote the world file ($(( after - before ))s after the backup's save)"; else fail "the stop did not write the world file (modified at ${before:-?}, then ${after:-?})"; fi
 vol 'rm -rf "$BASE/Saved/SaveGames" "$BASE/F_BannedPlayers.txt"'
 out="$(scripts/restore.sh "$archive" 2>&1)"; rc=$?
 if [ "$rc" = 0 ]; then pass "restore: ${out%%;*}"; else fail "restore exited $rc: $out"; fi
@@ -144,6 +185,7 @@ have="$(vol 'cd "$BASE" && find Saved/SaveGames F_BannedPlayers.txt -type f | so
 if [ -n "$want" ] && [ "$want" = "$have" ]; then pass "every file of the archive is back at its live path, byte for byte ($(grep -c . <<<"$want") files)"; else fail "the restored files differ from the archive"; fi
 compose start humanitz-server >/dev/null 2>&1
 if healthy 30 && rcon_ready; then pass "the restored server starts and answers RCON"; else fail "the restored server did not come back"; fi
+probe "after a restart"
 if vol 'test -s "$WORLD"'; then pass "after the start, the world is there"; else fail "after the start, the world file is gone: $(vol 'ls -la "$(dirname "$WORLD")" 2>&1' | tr '\n' ';')"; fi
 if vol 'grep -q "'"$BANNED"'" "$BASE/F_BannedPlayers.txt"' 2>/dev/null; then
   pass "after the start, the ban is still there"
@@ -175,6 +217,10 @@ if [ "$(docker inspect -f '{{.State.Running}}' "$cid")" = true ] && ! hc; then
   pass "the game killed and the container still running: the check goes red"
 else
   fail "after killing the game, the check stayed green or the container stopped"
+fi
+
+if [ -s "$VALUES" ]; then
+  if out="$(tests/secret-probe.sh selftest 2>&1)"; then pass "${out##*$'\n'}"; else fail "secret probe selftest: $out"; fi
 fi
 
 echo

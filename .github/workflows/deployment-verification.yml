@@ -119,6 +119,13 @@ jobs:
         # deep, what was there kept aside, the refusals leaving it untouched.
         run: ./tests/e2e-backup-restore.sh
 
+      - name: No password in the log behind scripts/start.sh, and a stop is still LinuxGSM's
+        # The pinned image, no game: LinuxGSM's details prints an
+        # AdminPassword from the settings file through the image's own
+        # entrypoint, and nothing behind start.sh; docker stop runs
+        # LinuxGSM's stop, exit 0.
+        run: ./tests/e2e-start.sh
+
       - name: A start does not wait for an npm registry that never answers
         # The pinned image's own npm and the module LinuxGSM installs: done in
         # seconds with the compose file's NPM_CONFIG_* settings, still waiting
@@ -140,15 +147,15 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: An .env with throwaway passwords
-        # Made for this run, masked in the log, gone with the runner.
+        # tests/secret-probe.sh plant: a random value for every password the
+        # compose file passes (join, admin, RCON), written by awk through its
+        # environment, never on a command line, masked in the log, and kept in
+        # a values file the probe searches for later; gone with the runner.
         run: |
-          admin="$(openssl rand -hex 16)"; echo "::add-mask::$admin"
-          rcon="$(openssl rand -hex 16)"; echo "::add-mask::$rcon"
-          sed -E -e "s/^HUMANITZ_ADMIN_PASSWORD=$/HUMANITZ_ADMIN_PASSWORD=$admin/" \
-                 -e "s/^HUMANITZ_RCON_PASSWORD=$/HUMANITZ_RCON_PASSWORD=$rcon/" \
-                 -e "s/^HUMANITZ_SERVER_NAME=.*/HUMANITZ_SERVER_NAME=CI HumanitZ | verification/" \
+          sed -E -e "s/^HUMANITZ_SERVER_NAME=.*/HUMANITZ_SERVER_NAME=CI HumanitZ | verification/" \
                  -e "s/^HUMANITZ_MAX_PLAYERS=.*/HUMANITZ_MAX_PLAYERS=8/" .env.example > .env
-          grep -cE '^HUMANITZ_(ADMIN|RCON)_PASSWORD=.{32}$' .env
+          PROBE_PROJECT=humanitz tests/secret-probe.sh plant
+          grep -cE '^HUMANITZ_(SERVER|ADMIN|RCON)_PASSWORD=p[0-9a-f]{20}$' .env
 
       - name: Docker 29.4.2 answers socketcall with ENOSYS; give its daemon the profile 29.4.3 ships
         # Docker Engine 29.4.2, and that release alone, blocks the 32-bit
@@ -175,4 +182,10 @@ jobs:
 
       - name: Install, start, settings, RCON, status, a ban, backup and restore, the health check
         # On a failure the test prints the server's own log before removing it.
+        # The secret probe after the first start, while the backup runs and
+        # after a restart; the stop measured (tests/clean-stop.sh).
         run: ./tests/e2e-game.sh
+
+      - name: Clean up
+        if: always()
+        run: rm -f "$RUNNER_TEMP/secret-probe.values" .env
