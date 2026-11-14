@@ -6,7 +6,7 @@
 #
 # The password comes from the container's own environment, where compose put
 # it (HUMANITZ_RCON_PASSWORD), never from argv, which every process on the
-# host can read. RCON_PASSWORD overrides it, for tests.
+# host can read. In tests, the variable named RCON_PASSWORD takes its place.
 #
 # HumanitZ's RCON, as measured on the server this template comes from:
 #   - authentication answers with an empty RESPONSE_VALUE first, then the

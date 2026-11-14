@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_(no unreleased changes yet)_
+### Changed
+
+- **A comment in `scripts/rcon.py` no longer reads like a password to a secret scanner.** It named the override variable followed by the word "overrides", which a common literal-secret pattern (an rcon password name, a space, eight letters or more) takes for a value; a pre-commit scanner refused the file for someone copying it. Reworded; nothing else changed.
 
 ## [1.3.0] - 2026-11-14
 
