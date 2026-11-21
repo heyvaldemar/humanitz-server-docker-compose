@@ -7,9 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Security
-
-- **`gameservermanagers/gameserver:hz` was rebuilt upstream**; the pin moved from `sha256:8a71842cd6bb…` to `sha256:e11d5f5112b4…`. Same version, same tag, a rebuilt base image — the usual shape of a security fix in a base layer.
+_(no unreleased changes yet)_
 
 ## [1.3.1] - 2026-11-14
 
