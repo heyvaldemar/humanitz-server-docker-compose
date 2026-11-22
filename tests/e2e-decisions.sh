@@ -12,7 +12,8 @@
 # No game download and no Steam: the "server" is a few lines of Python that
 # answer RCON the way HumanitZ does (authentication answered twice, lines
 # ending in CRLF, an unknown command left unanswered) with a chosen player
-# count, or not at all, and a stand-in for LinuxGSM's hzserver that prints a
+# count, with colour codes around it, with no count in a shape the parser
+# knows, or not at all, and a stand-in for LinuxGSM's hzserver that prints a
 # chosen local and remote build, coloured as LinuxGSM colours them. Nothing
 # here reaches the real restart: the cases that would go ahead run with
 # --dry-run.
@@ -104,8 +105,18 @@ services:
                 while True:
                     i, t, body = read(c)
                     if body == "info":
-                        players = int(mode.split(":")[1])
-                        c.sendall(pkt(i, 0, "Name: Fixture (Uptime: 3 minutes)\r\n%d connected.\r\nSeason: Summer\r\nPlayers:\r\n" % players))
+                        if mode == "garbled":
+                            # A reply in a shape the parser does not know:
+                            # no line starts with the number.
+                            reply = "Name: Fixture (Uptime: 3 minutes)\r\nthree connected.\r\nSeason: Summer\r\nPlayers:\r\n"
+                        elif mode.startswith("colored:"):
+                            # Colour codes between the words, as some game
+                            # servers print them.
+                            reply = "Name: Fixture (Uptime: 3 minutes)\r\n\033[33m%d\033[0m connected.\r\nSeason: \033[32mSummer\033[0m\r\nPlayers:\r\n" % int(mode.split(":")[1])
+                        else:
+                            reply = "Name: Fixture (Uptime: 3 minutes)\r\n%d connected.\r\nSeason: Summer\r\nPlayers:\r\n" % int(mode.split(":")[1])
+                        open("/tmp/info-reply", "w").write(reply)
+                        c.sendall(pkt(i, 0, reply))
             except Exception:
                 pass
             finally:
@@ -114,11 +125,14 @@ services:
 YAML
 
 # start MODE LOCAL REMOTE: a stand-in of its own per case. Sets $p rather than
-# printing it, so the project reaches PROJECTS and the cleanup.
+# printing it, so the project reaches PROJECTS and the cleanup. The previous
+# case's stand-in goes first: each case makes its own network, and a host
+# runs out of address pools long before it runs out of cases.
 start() {
+  [ -n "${p:-}" ] && docker compose -p "$p" -f "$WORK/fixture.yml" down -t 1 >/dev/null 2>&1
   p="hz-decisions-$$-${#PROJECTS[@]}"
   PROJECTS+=("$p")
-  MODE="$1" LOCAL="$2" REMOTE="$3" docker compose -p "$p" -f "$WORK/fixture.yml" up -d >/dev/null 2>&1 || { echo "cannot start the stand-in"; exit 1; }
+  MODE="$1" LOCAL="$2" REMOTE="$3" docker compose -p "$p" -f "$WORK/fixture.yml" up -d >"$WORK/up.log" 2>&1 || { echo "cannot start the stand-in:"; cat "$WORK/up.log"; exit 1; }
   # Ready means the stand-in hzserver exists and RCON's port is listening
   # (8888 is 0x22B8 in /proc/net/tcp); it answers nothing until asked.
   for _ in $(seq 1 60); do
@@ -163,10 +177,38 @@ if [ "$(started "$p")" = "$before" ]; then pass "behind, two players on: not res
 # 4. THE CASE THIS FILE EXISTS FOR: behind, and RCON does not answer.
 start silent 100 101; before="$(started "$p")"
 out="$(refresh 2>&1)"; rc=$?
-if [ "$rc" = 1 ] && grep -q "RCON did not answer three times" <<<"$out"; then pass "behind, RCON silent: waits, exit 1"; else fail "behind, RCON silent: exit $rc, said: $out"; fi
+if [ "$rc" = 1 ] && grep -q "RCON gave no player count" <<<"$out"; then pass "behind, RCON silent: waits, exit 1"; else fail "behind, RCON silent: exit $rc, said: $out"; fi
 if [ "$(started "$p")" = "$before" ]; then pass "behind, RCON silent: not restarted"; else fail "behind, RCON silent: restarted"; fi
 c="$(connections "$p")"
 if [ "$c" = 3 ]; then pass "behind, RCON silent: asked three times"; else fail "behind, RCON silent: asked $c time(s), expected 3"; fi
+
+# 4a. COLOUR CODES BETWEEN THE WORDS. The reply says three are on, with an
+# escape sequence in front of the number. Read through it: three on, so it
+# waits. The one-line check this guards against (read the number at the
+# start of the line, take an empty read as 0) reads the same reply as nobody
+# on, and would restart the server under them: it is run on the very reply
+# the stand-in sent, so this case is shown to catch it.
+oneline() {  # the old check, on the reply the stand-in last sent
+  n="$(docker compose -p "$p" -f "$WORK/fixture.yml" exec -T humanitz-server cat /tmp/info-reply 2>/dev/null \
+    | tr -d '\r' | sed -nE 's/^([0-9]+) connected\..*/\1/p')"
+  echo "${n:-0}"
+}
+start colored:3 100 101; before="$(started "$p")"
+out="$(refresh 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -q "but 3 player(s) are on" <<<"$out"; then pass "behind, three on, colour codes in the reply: read as three, waits"; else fail "behind, colour codes in the reply: exit $rc, said: $out"; fi
+if [ "$(started "$p")" = "$before" ]; then pass "behind, colour codes in the reply: not restarted"; else fail "behind, colour codes in the reply: restarted"; fi
+o="$(oneline)"
+if [ "$o" = 0 ]; then pass "the one-line check reads that reply as 0 players (this case catches it)"; else fail "the one-line check read $o from the coloured reply, so this case does not show what it guards against"; fi
+
+# 4b. A REPLY WITH NO COUNT IN IT. RCON answers, but in a shape the parser
+# does not know: no count is no count, so it waits and exits 1, like a silent
+# server. The one-line check reads it as 0 and would restart.
+start garbled 100 101; before="$(started "$p")"
+out="$(refresh 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q "RCON gave no player count" <<<"$out"; then pass "behind, a reply with no count: waits, exit 1"; else fail "behind, a reply with no count: exit $rc, said: $out"; fi
+if [ "$(started "$p")" = "$before" ]; then pass "behind, a reply with no count: not restarted"; else fail "behind, a reply with no count: restarted"; fi
+o="$(oneline)"
+if [ "$o" = 0 ]; then pass "the one-line check reads that reply as 0 players (this case catches it)"; else fail "the one-line check read $o from the reply with no count, so this case does not show what it guards against"; fi
 
 # 5. Behind and empty: it would restart.
 start players:0 100 101
@@ -242,6 +284,17 @@ if [ "$rc" = 0 ] && grep -q '"status": "Online", "players": 3, "max": 16, "seaso
 start silent 100 100
 out="$(HUMANITZ_PROJECT="$p" scripts/status.sh 2>&1)"; rc=$?
 if [ "$rc" = 1 ] && grep -q '"status": "Unknown", "players": null' <<<"$out"; then pass "status, RCON silent: Unknown, players null, exit 1"; else fail "status, RCON silent: exit $rc, said: $out"; fi
+
+# 9a. Colour codes in the reply: Online with the count and the season read
+# through them, nothing of the escapes left in the JSON.
+start colored:3 100 100
+out="$(HUMANITZ_PROJECT="$p" scripts/status.sh 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -q '"status": "Online", "players": 3, "max": 16, "season": "Summer"' <<<"$out"; then pass "status, colour codes in the reply: Online, 3 of 16, season read"; else fail "status, colour codes in the reply: exit $rc, said: $out"; fi
+
+# 9b. A reply with no count in it: Unknown, players null, exit 1.
+start garbled 100 100
+out="$(HUMANITZ_PROJECT="$p" scripts/status.sh 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q '"status": "Unknown", "players": null' <<<"$out"; then pass "status, a reply with no count: Unknown, players null, exit 1"; else fail "status, a reply with no count: exit $rc, said: $out"; fi
 
 # 10. The server stopped: Unknown, from the host, exit 1.
 docker compose -p "$p" -f "$WORK/fixture.yml" stop -t 1 >/dev/null 2>&1

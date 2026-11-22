@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_(no unreleased changes yet)_
+
+## [1.3.2] - 2026-11-22
+
 ### Fixed
 
+- **A coloured RCON reply is read, not lost.** Some game servers colour what they print over RCON or to the console, and the escape sequence lands between the words: `\e[33m3 connected.` no longer starts with the number. A check that reads the number at the start of the line and takes an empty read as 0 calls a server with three people on it empty, and an update restarts it under them. `scripts/rcon.py` now takes colour codes out of every reply, the way it already takes out the carriage returns, so `scripts/refresh.sh` and `scripts/status.sh` read the count through them. A reply with no count in it was already "Unknown" and never 0; `refresh.sh` now says so in words that fit both cases ("RCON gave no player count") instead of "did not answer". `tests/e2e-decisions.sh` adds a coloured reply and a reply with no count: the first is read as three and waits, the second waits and exits 1, and the one-line check is run on the same replies and reads both as 0, so the cases are shown to catch it. On the code before this change, the coloured reply was refused as unanswered and never read. The test also takes each stand-in down before the next one starts: the added cases ran a host out of Docker network address pools.
 - **The secret probe no longer fails when a process ends while it reads the container.** `tests/secret-probe.sh` lists `/proc/[0-9]*` and reads each process's command line; the loop ended on the status of its last test, so a short-lived process that was last in glob order and gone by the time it was read failed the whole container as unreadable. That is how the probe "after a restart" turned the 2026-11-21 digest refresh red ([run 44917224316](https://github.com/heyvaldemar/humanitz-server-docker-compose/actions/runs/44917224316)) while every other check passed. Reproduced against a container that starts processes in a loop: the old loop failed 170 of 200 reads, the new one none. The read is also stricter than it was: a process gone by the read is not counted, but every process still there must be read, where the old loop let an unreadable one pass unless it came last. A container still fails when it cannot be entered or has nothing to read (checked with a stopped container, an empty `/proc`, and `hidepid=1` for a user other than root). CI only; nothing a deployment runs changes.
 
 ## [1.3.1] - 2026-11-14
@@ -131,7 +136,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The world file is `Save_DedicatedSave.sav` with this template's settings**, not the `Save_DedicatedSaveMP.sav` the source server writes under other settings. The first real-server run failed its post-restore check on that name; the scripts already matched any `Save_*.sav`, which is why the byte-for-byte restore itself had passed.
 - **A crontab check that could pass for the wrong reason.** The first version passed on any answer without LinuxGSM's update line, an empty one from a failed `docker exec` included. Only "no crontab for linuxgsm", or a crontab read cleanly without that line, passes now.
 
-[Unreleased]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.3.2...HEAD
+[1.3.2]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/heyvaldemar/humanitz-server-docker-compose/compare/v1.2.0...v1.2.1

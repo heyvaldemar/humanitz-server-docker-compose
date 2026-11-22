@@ -16,10 +16,22 @@
 #   - replies end lines with CRLF. Kept, the \r breaks anything that parses the
 #     reply (a status page once read a healthy server as offline over it), so
 #     it is removed here, once, for every caller.
+#
+# Colour codes go the same way, for the same reason. Some game servers colour
+# what they print, and the escape sequence lands between the words: a reply
+# like "\033[33m3 connected." no longer starts with the number, and a parser
+# that falls back to 0 then calls a server with three people on it empty.
+# Nothing here falls back to 0 (no count is "Unknown"), but without this a
+# game update that starts colouring the reply would leave the count unread
+# for good, and the server never updated.
 import os
+import re
 import socket
 import struct
 import sys
+
+# CSI (colours, cursor moves), OSC (titles) and the two-character escapes.
+ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])")
 
 
 def packet(request_id, kind, body):
@@ -42,15 +54,15 @@ def read(sock):
             raise ConnectionError("closed")
         data += chunk
     request_id, kind = struct.unpack("<ii", data[:8])
-    return request_id, kind, data[8:-2].decode("utf-8", "replace").replace("\r", "")
+    return request_id, kind, ANSI.sub("", data[8:-2].decode("utf-8", "replace").replace("\r", ""))
 
 
 def report_status(password, port):
     """--status: one line of JSON. "Unknown" with players null when RCON does
-    not answer, never "Online" with 0: a dead probe must not claim an empty
-    server."""
+    not answer, or answers with no "N connected." line in it, never "Online"
+    with 0: a dead probe, or a reply in a shape this does not know, must not
+    claim an empty server."""
     import json
-    import re
     import time
     info = ""
     for _ in range(3):

@@ -159,7 +159,7 @@ fi
 players="$(docker exec -i "$cid" python3 - --status < scripts/rcon.py 2>/dev/null | sed -nE 's/.*"players": ([0-9]+).*/\1/p')"
 case "$players" in ''|*[!0-9]*) players="?" ;; esac
 if [ "$players" = "?" ] && [ "$FORCE" != "true" ]; then
-  say "behind ($installed -> $latest), and RCON did not answer three times, so nobody can say who is on; not restarting. --force restarts anyway" >&2
+  say "behind ($installed -> $latest), and RCON gave no player count (no answer in three tries, or a reply with no \"N connected.\" line), so nobody can say who is on; not restarting. --force restarts anyway" >&2
   exit 1
 fi
 if [ "$players" != "?" ] && [ "$players" -gt 0 ] && [ "$FORCE" != "true" ]; then
