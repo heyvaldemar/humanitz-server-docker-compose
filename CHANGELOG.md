@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_(no unreleased changes yet)_
+### Fixed
+
+- **The secret probe no longer fails when a process ends while it reads the container.** `tests/secret-probe.sh` lists `/proc/[0-9]*` and reads each process's command line; the loop ended on the status of its last test, so a short-lived process that was last in glob order and gone by the time it was read failed the whole container as unreadable. That is how the probe "after a restart" turned the 2026-11-21 digest refresh red ([run 44917224316](https://github.com/heyvaldemar/humanitz-server-docker-compose/actions/runs/44917224316)) while every other check passed. Reproduced against a container that starts processes in a loop: the old loop failed 170 of 200 reads, the new one none. The read is also stricter than it was: a process gone by the read is not counted, but every process still there must be read, where the old loop let an unreadable one pass unless it came last. A container still fails when it cannot be entered or has nothing to read (checked with a stopped container, an empty `/proc`, and `hidepid=1` for a user other than root). CI only; nothing a deployment runs changes.
 
 ## [1.3.1] - 2026-11-14
 
